@@ -1,0 +1,11 @@
+services:
+  vegas-automation:
+    build: .
+    env_file:
+      - .env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./secrets:/app/secrets:ro
+    restart: unless-stopped
+

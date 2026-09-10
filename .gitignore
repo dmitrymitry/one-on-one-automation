@@ -1,0 +1,15 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+.DS_Store
+*.py[cod]
+secrets/*
+!secrets/.gitkeep
+
+# Local Claude Code tooling settings (may contain tokens)
+.claude/
+.env.*
+!.env.example

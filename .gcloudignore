@@ -1,0 +1,9 @@
+# Nothing secret may reach the build context: config comes from env vars.
+.env
+.env.*
+secrets/
+.venv/
+.git/
+__pycache__/
+*.pyc
+tests/
