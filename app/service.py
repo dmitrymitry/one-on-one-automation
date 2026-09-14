@@ -52,8 +52,9 @@ class VegasAutomationService:
     def within_working_hours(self, now: datetime | None = None) -> bool:
         """Weekdays only, and only while 1:1s can happen.
 
-        The window opens `calendar_lookahead_minutes` before the working day so a
-        meeting at the very start of it still gets its 90-minute reminder.
+        The window opens `calendar_lookahead_minutes` before the working day so
+        the cycle is already running when the day's first meetings begin.
+        Reminders themselves go out a full day ahead (see reminder_horizon).
         """
         now = now or datetime.now(ZoneInfo(self.settings.app_timezone))
         if now.weekday() >= 5:  # Saturday, Sunday
@@ -84,11 +85,24 @@ class VegasAutomationService:
                 summary["waiting_for_transcript"] += 1
         return summary
 
+    def reminder_horizon(self, now: datetime) -> datetime:
+        """How far ahead to reach for meetings to remind about.
+
+        A full day ahead (reminder_lookahead_hours), but the cycle never runs on
+        weekends, so a horizon that lands on Sat/Sun would leave Monday meetings
+        with no reminder until Monday itself. Pushing it past the weekend means
+        Friday's runs reach into Monday — the Monday 1:1 gets its day-ahead
+        reminder on the last working day before it.
+        """
+        horizon = now + timedelta(hours=self.settings.reminder_lookahead_hours)
+        local = ZoneInfo(self.settings.app_timezone)
+        while horizon.astimezone(local).weekday() >= 5:  # Saturday, Sunday
+            horizon += timedelta(days=1)
+        return horizon
+
     def send_followups(self) -> dict:
         now = datetime.now(timezone.utc)
-        events = self.calendar.list_events(
-            now, now + timedelta(minutes=self.settings.calendar_lookahead_minutes)
-        )
+        events = self.calendar.list_events(now, self.reminder_horizon(now))
         managers = self.sheets.get_managers()
         summary = {"seen": 0, "sent": 0, "skipped": 0, "failed": 0}
         for meeting in events:

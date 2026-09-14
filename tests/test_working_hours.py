@@ -7,13 +7,16 @@ from app.service import VegasAutomationService
 KYIV = ZoneInfo("Europe/Kyiv")
 
 
-def service(start: int = 10, end: int = 19, lookahead: int = 90) -> VegasAutomationService:
+def service(
+    start: int = 10, end: int = 19, lookahead: int = 90, reminder_hours: int = 24
+) -> VegasAutomationService:
     svc = VegasAutomationService.__new__(VegasAutomationService)
     svc.settings = SimpleNamespace(
         app_timezone="Europe/Kyiv",
         work_hours_start=start,
         work_hours_end=end,
         calendar_lookahead_minutes=lookahead,
+        reminder_lookahead_hours=reminder_hours,
     )
     return svc
 
@@ -66,3 +69,27 @@ def test_run_cycle_does_nothing_outside_the_window() -> None:
     svc.within_working_hours = lambda now=None: False
 
     assert svc.run_cycle() == {"skipped": "outside working hours"}
+
+
+def test_reminder_horizon_is_a_day_ahead_on_a_weekday() -> None:
+    """Tuesday now -> horizon lands on Wednesday, catching next-day meetings."""
+    svc = service()
+    horizon = svc.reminder_horizon(at(8, 15))  # Tue 15:00
+    assert horizon == at(9, 15)  # Wed 15:00
+
+
+def test_reminder_horizon_reaches_over_the_weekend_from_friday() -> None:
+    """Friday now -> +24h is Saturday, so it must extend into Monday.
+
+    That is what gives a Monday 1:1 its day-ahead reminder on Friday, since the
+    cycle never runs on Sat/Sun.
+    """
+    svc = service()
+    horizon = svc.reminder_horizon(at(11, 15))  # Fri 15:00
+    assert horizon == at(14, 15)  # Mon 15:00, weekend skipped
+
+
+def test_reminder_horizon_from_thursday_stays_on_friday() -> None:
+    svc = service()
+    horizon = svc.reminder_horizon(at(10, 15))  # Thu 15:00
+    assert horizon == at(11, 15)  # Fri 15:00, no weekend involved
