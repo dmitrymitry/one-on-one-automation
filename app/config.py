@@ -30,7 +30,13 @@ class Settings(BaseSettings):
 
     calendar_title_keywords: str = "Vegas"
     calendar_lookback_hours: int = Field(default=48, ge=1)
+    # Only opens the working-hours window early (see within_working_hours). Not
+    # the reminder horizon — that is reminder_lookahead_hours below.
     calendar_lookahead_minutes: int = Field(default=90, ge=5)
+    # Pre-meeting reminders go out this far ahead — a full day, so people can
+    # prepare. The horizon skips weekends (see reminder_horizon): a Monday 1:1
+    # is reminded on Friday, since the cycle never runs on Sat/Sun.
+    reminder_lookahead_hours: int = Field(default=24, ge=1)
     gmail_transcript_sender: str = ""
     gmail_transcript_label: str = ""
     gmail_transcript_query: str = ""

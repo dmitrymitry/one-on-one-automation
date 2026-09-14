@@ -34,7 +34,7 @@ follow-ups, there is no separate task database (see `CLAUDE.md`, Rule 0).
 4. On Confirm the follow-up is delivered to the **participant**, and the items
    whose owner is the host (`HOST_NAME`) are created as **Google Tasks** with
    due dates.
-5. For an **upcoming** 1:1, 90 minutes before it, a reminder goes out (rebuilt
+5. For an **upcoming** 1:1, a day before it (on working days), a reminder goes out (rebuilt
    from past follow-ups): the **host** gets the full briefing (everything open +
    what to raise), and the **participant** gets only their own part.
 
