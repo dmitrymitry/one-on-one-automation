@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from .meeting_matcher import normalize_text
 from .models import (
     CalendarMeeting,
@@ -11,16 +13,51 @@ from .models import (
 # in the sheet, where follow-ups are edited by hand.
 RULE = "─" * 24
 
+# Ukrainian weekday in the "коли?" (prepositional) form, indexed by weekday().
+# Capitalised because it opens the reminder. Mon=0.
+_WEEKDAYS = (
+    "У понеділок",
+    "У вівторок",
+    "У середу",
+    "У четвер",
+    "У п'ятницю",
+    "У суботу",
+    "У неділю",
+)
+
+
+def relative_day(start_at: datetime, now: datetime | None = None) -> str:
+    """When the meeting is, phrased for a reminder sent ahead of time.
+
+    Reminders now go out a full day early — and for a Monday 1:1 they go out on
+    Friday — so the meeting is rarely "today". Say Сьогодні / Завтра /
+    Післязавтра for the near days, the weekday name a little further out, and
+    fall back to the date for anything else (or a meeting already in the past).
+    """
+    now = now or datetime.now(start_at.tzinfo or timezone.utc)
+    days = (start_at.date() - now.astimezone(start_at.tzinfo).date()).days
+    if days == 0:
+        return "Сьогодні"
+    if days == 1:
+        return "Завтра"
+    if days == 2:
+        return "Післязавтра"
+    if 3 <= days <= 6:
+        return _WEEKDAYS[start_at.weekday()]
+    return f"{start_at:%d.%m}"
+
 
 def build_reminder(
     manager: Manager,
     meeting: CalendarMeeting,
     reminder: MeetingReminder,
     host_names: list[str] | None = None,
+    now: datetime | None = None,
 ) -> str:
     """Pre-meeting briefing for whoever runs the 1:1."""
+    when = relative_day(meeting.start_at, now)
     blocks = [
-        f"Сьогодні о {meeting.start_at:%H:%M} — 1:1 з {manager.manager_name}\n"
+        f"{when} о {meeting.start_at:%H:%M} — 1:1 з {manager.manager_name}\n"
         f"{meeting.title}\n\n"
         f"Ознайомся перед зустріччю."
     ]
@@ -54,6 +91,7 @@ def build_participant_reminder(
     meeting: CalendarMeeting,
     reminder: MeetingReminder,
     host_names: list[str],
+    now: datetime | None = None,
 ) -> str:
     """What the other side of the 1:1 owes, and nothing else.
 
@@ -64,8 +102,9 @@ def build_participant_reminder(
     if not theirs and not hanging:
         return ""
 
+    when = relative_day(meeting.start_at, now)
     blocks = [
-        f"Сьогодні о {meeting.start_at:%H:%M} — 1:1\n{meeting.title}\n\n"
+        f"{when} о {meeting.start_at:%H:%M} — 1:1\n{meeting.title}\n\n"
         f"Перед зустріччю перевір, що готово з твого боку."
     ]
     if theirs:
