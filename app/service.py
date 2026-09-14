@@ -420,7 +420,12 @@ class VegasAutomationService:
         if not followups and not self.settings.telegram_send_empty_followup:
             return False
         reminder = self.llm.prepare_reminder(manager, meeting, followups)
-        text = build_reminder(manager, meeting, reminder, self.settings.host_name_list)
+        # Reminders go out a day (or, for Monday, over the weekend) ahead, so the
+        # "Сьогодні / Завтра / у понеділок" wording is computed against local now.
+        now_local = datetime.now(ZoneInfo(self.settings.app_timezone))
+        text = build_reminder(
+            manager, meeting, reminder, self.settings.host_name_list, now=now_local
+        )
         # The full briefing goes to whoever runs the 1:1.
         self.telegram.send_message(
             self.settings.host_telegram_chat_id,
@@ -430,7 +435,7 @@ class VegasAutomationService:
         # The other side gets only their own share, so they arrive prepared too.
         if manager.telegram_chat_id:
             theirs = build_participant_reminder(
-                manager, meeting, reminder, self.settings.host_name_list
+                manager, meeting, reminder, self.settings.host_name_list, now=now_local
             )
             if theirs:
                 try:

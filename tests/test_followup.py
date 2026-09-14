@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from app.followup import build_participant_reminder, build_reminder, is_host
+from app.followup import build_participant_reminder, build_reminder, is_host, relative_day
 from app.llm_analyzer import (
     RawCarryOver,
     RawCommitment,
@@ -45,7 +45,13 @@ def test_reminder_has_three_sections() -> None:
         ),
     )
 
-    text = build_reminder(Manager("alpha", "Alpha", ("Alpha",)), make_meeting(), reminder)
+    # now = the meeting's own day, so the header reads "Сьогодні".
+    text = build_reminder(
+        Manager("alpha", "Alpha", ("Alpha",)),
+        make_meeting(),
+        reminder,
+        now=datetime(2026, 9, 8, 8, tzinfo=timezone.utc),
+    )
 
     assert text.startswith("Сьогодні о 10:00 — 1:1 з Alpha\nAlpha / Vegas")
     assert "Ознайомся перед зустріччю." in text
@@ -76,10 +82,44 @@ def test_reminder_omits_empty_sections() -> None:
 
 def test_reminder_without_anything_says_so() -> None:
     text = build_reminder(
-        Manager("alpha", "Alpha", ("Alpha",)), make_meeting(), MeetingReminder()
+        Manager("alpha", "Alpha", ("Alpha",)),
+        make_meeting(),
+        MeetingReminder(),
+        now=datetime(2026, 9, 8, 8, tzinfo=timezone.utc),
     )
 
     assert "Відкритих домовленостей з попередніх зустрічей немає." in text
+
+
+def test_reminder_header_says_tomorrow_when_sent_a_day_ahead() -> None:
+    # Meeting Tue 08.09, reminder sent Mon 07.09 -> "Завтра".
+    text = build_reminder(
+        Manager("alpha", "Alpha", ("Alpha",)),
+        make_meeting(),
+        MeetingReminder(),
+        now=datetime(2026, 9, 7, 15, tzinfo=timezone.utc),
+    )
+
+    assert text.startswith("Завтра о 10:00 — 1:1 з Alpha")
+
+
+def test_reminder_header_names_the_weekday_for_a_monday_sent_on_friday() -> None:
+    # Monday 14.09 meeting, reminder sent Friday 11.09 (weekend skipped).
+    monday = datetime(2026, 9, 14, 16, tzinfo=timezone.utc)
+    meeting = CalendarMeeting("event", "Astra&Vegas / weekly", monday, monday, "primary")
+    text = build_reminder(
+        Manager("astra", "Astra", ("Astra",)),
+        meeting,
+        MeetingReminder(),
+        now=datetime(2026, 9, 11, 16, tzinfo=timezone.utc),
+    )
+
+    assert text.startswith("У понеділок о 16:00 — 1:1 з Astra")
+
+
+def test_relative_day_falls_back_to_a_date_when_far_off() -> None:
+    start = datetime(2026, 9, 30, 12, tzinfo=timezone.utc)
+    assert relative_day(start, datetime(2026, 9, 8, 12, tzinfo=timezone.utc)) == "30.09"
 
 
 def test_normalize_reminder_drops_empty_and_duplicate_entries() -> None:
