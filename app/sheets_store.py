@@ -39,6 +39,7 @@ SCHEMA: dict[str, list[str]] = {
         "summary_message_id",
         "summary_synced_hash",
         "host_tasks_scheduled_at",
+        "calendar_notes_synced_hash",
     ],
 }
 

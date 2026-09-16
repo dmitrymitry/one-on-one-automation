@@ -8,9 +8,10 @@ Telegram for review, and — once confirmed — delivers it to the participant a
 files the host's own action items as Google Tasks.
 
 ```
-Google Calendar ──> upcoming 1:1 ──> 90-min reminder (built from past follow-ups)
-       │                              ├─> host: full briefing
-       │                              └─> participant: only their own part
+Google Calendar ──> upcoming 1:1 ──> a-day-ahead reminder (built from past follow-ups)
+       │                              ├─> host: full briefing (Telegram)
+       │                              ├─> participant: only their own part (Telegram)
+       │                              └─> event notes: shared agenda (Calendar)
        └────────> finished 1:1 ──> transcript from Gmail ──> LLM ──> follow-up draft
                                                                        │
                                         Telegram («Підтвердити» button) ┤
@@ -36,7 +37,9 @@ follow-ups, there is no separate task database (see `CLAUDE.md`, Rule 0).
    due dates.
 5. For an **upcoming** 1:1, a day before it (on working days), a reminder goes out (rebuilt
    from past follow-ups): the **host** gets the full briefing (everything open +
-   what to raise), and the **participant** gets only their own part.
+   what to raise), and the **participant** gets only their own part. The same
+   data is also written into the calendar event's own notes, as a shared
+   agenda both sides can open without Telegram (see `CLAUDE.md`, Rule 0).
 
 Full rules are in [`CLAUDE.md`](CLAUDE.md) (in Ukrainian).
 
@@ -84,7 +87,8 @@ API, Gemini (or an OpenAI-compatible provider). Tests: pytest, lint: ruff.
 - A **Google Cloud project** with these APIs enabled: Calendar, Gmail, Sheets,
   Tasks.
 - An **OAuth client** (Desktop) → `secrets/google-oauth-client.json`. Scopes:
-  `calendar.readonly`, `gmail.readonly`, `spreadsheets`, `tasks`.
+  `calendar.events` (read/write — the bot writes the agenda into the event's
+  own notes, not just reads events), `gmail.readonly`, `spreadsheets`, `tasks`.
 - A **Google spreadsheet** (see below).
 - A **Telegram bot** (token from @BotFather).
 - A **Gemini API key** (or OpenAI). Gemini's free tier is 20 requests per day
@@ -123,6 +127,11 @@ Every variable is documented in [`.env.example`](.env.example). Secrets
 ```bash
 python -m app.google_oauth        # opens a browser once, creates secrets/google-token.json
 ```
+
+Re-run this (locally and for the `GOOGLE_TOKEN_JSON` secret on the server)
+whenever `GOOGLE_SCOPES` gains a new scope — it forces re-consent and
+overwrites the token, so an old token cannot silently keep running with
+fewer permissions than the code now needs.
 
 ## Running locally
 

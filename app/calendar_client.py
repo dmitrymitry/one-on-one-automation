@@ -30,6 +30,20 @@ class GoogleCalendarClient:
             for event in response.get("items", [])
         ]
 
+    def update_notes(self, calendar_id: str, event_id: str, description: str) -> None:
+        """Overwrite an event's description with `description`.
+
+        Needs the calendar.events (write) scope — calendar.readonly cannot do
+        this. Callers are expected to have merged in whatever was there before
+        (see `followup.merge_calendar_notes`); this call replaces the field
+        wholesale, as the Calendar API offers no partial-text patch.
+        """
+        self.service.events().patch(
+            calendarId=calendar_id,
+            eventId=event_id,
+            body={"description": description},
+        ).execute()
+
     def create_task(self, title: str, day: date, notes: str = "") -> str:
         """Add a Google Task due on that day. It shows up in Calendar and can be ticked off.
 
@@ -57,6 +71,7 @@ def _to_meeting(event: dict, calendar_id: str) -> CalendarMeeting:
         end_at=_parse_datetime(end),
         calendar_id=calendar_id,
         html_link=event.get("htmlLink", ""),
+        description=event.get("description", ""),
     )
 
 

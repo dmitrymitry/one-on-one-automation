@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     google_service_account_file: str = "secrets/google-service-account.json"
     google_delegated_user: str = ""
     google_scopes: str = (
-        "https://www.googleapis.com/auth/calendar.readonly,"
+        "https://www.googleapis.com/auth/calendar.events,"
         "https://www.googleapis.com/auth/gmail.readonly,"
         "https://www.googleapis.com/auth/spreadsheets"
     )
