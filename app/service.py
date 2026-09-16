@@ -6,12 +6,17 @@ from zoneinfo import ZoneInfo
 
 from .calendar_client import GoogleCalendarClient
 from .config import Settings
-from .followup import build_participant_reminder, build_reminder
+from .followup import (
+    build_calendar_agenda,
+    build_participant_reminder,
+    build_reminder,
+    merge_calendar_notes,
+)
 from .gmail_client import GmailTranscriptClient
 from .llm_analyzer import LLMAnalyzer
 from .meeting_matcher import match_manager, normalize_text
 from .meeting_summary import build_meeting_summary, summary_recipients
-from .models import CalendarMeeting, Manager
+from .models import CalendarMeeting, Manager, MeetingReminder
 from .sheets_store import GoogleSheetsStore
 from .telegram_client import TelegramClient
 
@@ -426,6 +431,7 @@ class VegasAutomationService:
         text = build_reminder(
             manager, meeting, reminder, self.settings.host_name_list, now=now_local
         )
+        self._sync_calendar_agenda(meeting, reminder)
         # The full briefing goes to whoever runs the 1:1.
         self.telegram.send_message(
             self.settings.host_telegram_chat_id,
@@ -446,6 +452,27 @@ class VegasAutomationService:
                     )
         self.sheets.patch_meeting(meeting.meeting_id, {"followup_sent_at": _now_iso()})
         return True
+
+    def _sync_calendar_agenda(self, meeting: CalendarMeeting, reminder: MeetingReminder) -> None:
+        """Write "what to raise" into the event's own notes, next to the Meet link.
+
+        Needs the calendar.events (write) scope; calendar.readonly cannot patch
+        an event. Missing scope/API access fails the same way the Tasks
+        integration does elsewhere in this file — logged and skipped, not fatal.
+        """
+        agenda = build_calendar_agenda(reminder)
+        notes_hash = _text_hash(agenda) if agenda else ""
+        current = self.sheets.get_meeting(meeting.meeting_id) or {}
+        if current.get("calendar_notes_synced_hash", "") == notes_hash:
+            return
+        try:
+            merged = merge_calendar_notes(meeting.description, agenda)
+            self.calendar.update_notes(meeting.calendar_id, meeting.meeting_id, merged)
+            self.sheets.patch_meeting(
+                meeting.meeting_id, {"calendar_notes_synced_hash": notes_hash}
+            )
+        except Exception:
+            LOGGER.exception("Could not update calendar notes for %s", meeting.meeting_id)
 
 
 def build_automation(settings: Settings) -> VegasAutomationService:

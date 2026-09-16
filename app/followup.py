@@ -116,6 +116,50 @@ def build_participant_reminder(
     return "\n\n".join(blocks)
 
 
+CALENDAR_AGENDA_MARKER = f"{RULE}\nПОРЯДОК ДЕННИЙ (Vegas)\n{RULE}"
+
+
+def build_calendar_agenda(reminder: MeetingReminder) -> str:
+    """What to raise at the meeting, for the calendar event's own notes.
+
+    Unlike `build_reminder`, this is read by both sides at once, so entries are
+    named by person (`_entry` already prints "Хто") instead of split into
+    ТВОЇ/ЇХНІ. Returns "" when there is nothing open, so a resolved agenda gets
+    cleared rather than left stale (see `merge_calendar_notes`).
+    """
+    blocks = []
+    if reminder.commitments:
+        entries = [_entry(item) for item in reminder.commitments]
+        blocks.append(_section("ВІДКРИТІ ДОМОВЛЕНОСТІ", entries))
+    if reminder.carried_over:
+        entries = [_entry(item) for item in reminder.carried_over]
+        blocks.append(_section("ЗАВИСЛО З ПОПЕРЕДНІХ ЗУСТРІЧЕЙ", entries))
+    if reminder.open_topics:
+        blocks.append(
+            _section(
+                "ПІДНІМАЛИ, АЛЕ НЕ ВИРІШИЛИ",
+                [_open_topic(item) for item in reminder.open_topics],
+            )
+        )
+    return "\n\n".join(blocks)
+
+
+def merge_calendar_notes(existing: str, agenda: str) -> str:
+    """Replace our trailing agenda block in an event's description in place.
+
+    Everything before `CALENDAR_AGENDA_MARKER` (Meet's own notes, anything
+    typed by hand) is kept untouched; only our own block, always last, is
+    replaced. An empty `agenda` drops the block entirely instead of leaving a
+    stale one once everything is resolved.
+    """
+    marker_pos = existing.find(CALENDAR_AGENDA_MARKER)
+    head = (existing[:marker_pos] if marker_pos != -1 else existing).rstrip()
+    if not agenda:
+        return head
+    block = f"{CALENDAR_AGENDA_MARKER}\n\n{agenda}"
+    return f"{head}\n\n{block}" if head else block
+
+
 def _split_by_owner(
     commitments: tuple[ReminderCommitment, ...],
     host_names: list[str],

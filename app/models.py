@@ -23,6 +23,7 @@ class CalendarMeeting:
     end_at: datetime
     calendar_id: str
     html_link: str = ""
+    description: str = ""
 
 
 @dataclass(frozen=True)

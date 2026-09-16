@@ -1,6 +1,14 @@
 from datetime import datetime, timezone
 
-from app.followup import build_participant_reminder, build_reminder, is_host, relative_day
+from app.followup import (
+    CALENDAR_AGENDA_MARKER,
+    build_calendar_agenda,
+    build_participant_reminder,
+    build_reminder,
+    is_host,
+    merge_calendar_notes,
+    relative_day,
+)
 from app.llm_analyzer import (
     RawCarryOver,
     RawCommitment,
@@ -231,3 +239,60 @@ def test_participant_reminder_is_empty_when_they_owe_nothing() -> None:
     )
 
     assert text == ""
+
+
+def test_calendar_agenda_lists_both_sides_by_name() -> None:
+    reminder = MeetingReminder(
+        commitments=(
+            ReminderCommitment(who="Олег Ткаченко", what="обробити відео", timing="до 29.07"),
+            ReminderCommitment(who="Ірина Коваленко", what="зібрати фідбек", timing="до 28.07"),
+        ),
+        open_topics=(ReminderOpenTopic(topic="перетин відпусток"),),
+    )
+
+    agenda = build_calendar_agenda(reminder)
+
+    # No ТВОЇ/ЇХНІ split: the calendar event is shared, so everyone is named.
+    assert "ТВОЇ ЗАДАЧІ" not in agenda
+    assert "ВІДКРИТІ ДОМОВЛЕНОСТІ" in agenda
+    assert "обробити відео" in agenda and "Хто: Олег Ткаченко" in agenda
+    assert "зібрати фідбек" in agenda and "Хто: Ірина Коваленко" in agenda
+    assert "перетин відпусток" in agenda
+
+
+def test_calendar_agenda_is_empty_when_nothing_is_open() -> None:
+    assert build_calendar_agenda(MeetingReminder()) == ""
+
+
+def test_merge_calendar_notes_appends_after_existing_content() -> None:
+    merged = merge_calendar_notes("Meet: https://meet.google.com/abc", "— зробити X")
+
+    assert merged.startswith("Meet: https://meet.google.com/abc\n\n")
+    assert CALENDAR_AGENDA_MARKER in merged
+    assert merged.endswith("— зробити X")
+
+
+def test_merge_calendar_notes_replaces_only_its_own_block() -> None:
+    existing = merge_calendar_notes("Meet: https://meet.google.com/abc", "— стара тема")
+
+    updated = merge_calendar_notes(existing, "— нова тема")
+
+    assert updated.startswith("Meet: https://meet.google.com/abc")
+    assert "— стара тема" not in updated
+    assert "— нова тема" in updated
+    assert updated.count(CALENDAR_AGENDA_MARKER) == 1
+
+
+def test_merge_calendar_notes_drops_stale_block_once_resolved() -> None:
+    existing = merge_calendar_notes("Meet: https://meet.google.com/abc", "— зробити X")
+
+    cleared = merge_calendar_notes(existing, "")
+
+    assert cleared == "Meet: https://meet.google.com/abc"
+    assert CALENDAR_AGENDA_MARKER not in cleared
+
+
+def test_merge_calendar_notes_works_on_an_empty_description() -> None:
+    merged = merge_calendar_notes("", "— зробити X")
+
+    assert merged == f"{CALENDAR_AGENDA_MARKER}\n\n— зробити X"
