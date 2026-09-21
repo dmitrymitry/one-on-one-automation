@@ -497,7 +497,7 @@ class VegasAutomationService:
         an event. Missing scope/API access fails the same way the Tasks
         integration does elsewhere in this file — logged and skipped, not fatal.
         """
-        agenda = build_calendar_agenda(reminder)
+        agenda = build_calendar_agenda(meeting, reminder)
         notes_hash = _text_hash(agenda) if agenda else ""
         current = self.sheets.get_meeting(meeting.meeting_id) or {}
         if current.get("calendar_notes_synced_hash", "") == notes_hash:

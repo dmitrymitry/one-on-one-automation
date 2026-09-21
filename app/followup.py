@@ -119,13 +119,19 @@ def build_participant_reminder(
 CALENDAR_AGENDA_MARKER = f"{RULE}\nПОРЯДОК ДЕННИЙ (Vegas)\n{RULE}"
 
 
-def build_calendar_agenda(reminder: MeetingReminder) -> str:
+def build_calendar_agenda(meeting: CalendarMeeting, reminder: MeetingReminder) -> str:
     """What to raise at the meeting, for the calendar event's own notes.
 
     Unlike `build_reminder`, this is read by both sides at once, so entries are
     named by person (`_entry` already prints "Хто") instead of split into
     ТВОЇ/ЇХНІ. Returns "" when there is nothing open, so a resolved agenda gets
     cleared rather than left stale (see `merge_calendar_notes`).
+
+    Items here are dated by the meeting they were RAISED at ("Звідки: зустріч
+    07.09"), which is the whole point of carrying something over — but without
+    saying which meeting this block was itself prepared FOR, a page full of
+    past dates reads as a stale leftover from some earlier week instead of a
+    current agenda. Hence the header line.
     """
     blocks = []
     if reminder.commitments:
@@ -141,7 +147,10 @@ def build_calendar_agenda(reminder: MeetingReminder) -> str:
                 [_open_topic(item) for item in reminder.open_topics],
             )
         )
-    return "\n\n".join(blocks)
+    if not blocks:
+        return ""
+    header = f"Актуально до зустрічі {meeting.start_at:%d.%m.%Y}"
+    return header + "\n\n" + "\n\n".join(blocks)
 
 
 def merge_calendar_notes(existing: str, agenda: str) -> str:
