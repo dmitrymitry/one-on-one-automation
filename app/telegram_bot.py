@@ -68,6 +68,23 @@ class TelegramBot:
             (update.get("callback_query") or {}).get("data", "")[:20],
             bool((update.get("message") or {}).get("reply_to_message")),
         )
+        # Temporary: identify a new chat's id (e.g. a group the bot was just
+        # added to) from Cloud Run logs, without printing any message text.
+        chat = (
+            (update.get("message") or {}).get("chat")
+            or (update.get("edited_message") or {}).get("chat")
+            or (update.get("my_chat_member") or {}).get("chat")
+            or (update.get("chat_member") or {}).get("chat")
+            or {}
+        )
+        if chat:
+            LOGGER.info(
+                "Update %s chat: id=%s type=%s title=%r",
+                update.get("update_id"),
+                chat.get("id"),
+                chat.get("type"),
+                chat.get("title", ""),
+            )
         if "callback_query" in update:
             self._handle_callback(update["callback_query"])
             return
@@ -137,7 +154,12 @@ class TelegramBot:
         if not chat_id or not text:
             return
         if not self._is_host(chat_id):
-            self._onboard(chat_id, text, message.get("from") or {})
+            # Onboarding is a PM starting a private DM with the bot. A message
+            # from a group (e.g. a risk-alerts channel the bot was added to
+            # for something else entirely) must never trigger the "what's
+            # your nick" onboarding flow into that group.
+            if message.get("chat", {}).get("type") == "private":
+                self._onboard(chat_id, text, message.get("from") or {})
             return
         replied = message.get("reply_to_message") or {}
         if not replied:
