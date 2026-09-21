@@ -333,11 +333,28 @@ class OnboardingSheets(FakeSheets):
 def newcomer(text: str, chat_id: str = STRANGER, username: str = "olena_s") -> dict:
     return {
         "message": {
-            "chat": {"id": chat_id},
+            "chat": {"id": chat_id, "type": "private"},
             "text": text,
             "from": {"username": username, "first_name": "Ірина"},
         }
     }
+
+
+def test_group_message_never_triggers_onboarding() -> None:
+    """A bot added to some unrelated group (e.g. a risk-alerts channel) must
+
+    never reply into it with onboarding instructions — onboarding is a
+    private-DM-only flow.
+    """
+    bot, automation, telegram = make_bot()
+    automation.sheets = OnboardingSheets()
+    update = newcomer("/start")
+    update["message"]["chat"]["type"] = "group"
+
+    bot.handle(update)
+
+    assert automation.sheets.bound == []
+    assert telegram.sent == []
 
 
 def test_first_contact_gets_instructions_not_a_binding() -> None:
