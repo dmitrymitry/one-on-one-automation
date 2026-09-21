@@ -131,13 +131,28 @@ def build_reminder_prompt(
     manager: Manager,
     meeting: CalendarMeeting,
     followups: list[str],
+    cross_references: list[tuple[str, str]] | None = None,
 ) -> str:
-    """Brief the person running the 1:1, using the earlier follow-ups as input."""
+    """Brief the person running the 1:1, using the earlier follow-ups as input.
+
+    `cross_references` are recent follow-ups from OTHER 1:1s that happen to
+    name this manager — e.g. the host told Iton "I'll ask Astra about X", and
+    that promise only ever gets written down in Iton's own follow-up. Passed
+    in pre-filtered (see meeting_matcher.mentions_manager) so this stays a
+    handful of relevant blocks, not every follow-up in the sheet.
+    """
     blocks = []
     for index, followup in enumerate(followups, 1):
         label = "most recent" if index == 1 else f"{index} meetings ago"
         blocks.append(f"--- Follow-up {index} ({label}) ---\n{followup}")
     followups_text = "\n\n".join(blocks) or "(no earlier follow-ups found)"
+
+    cross_ref_blocks = [
+        f"--- From the {other_manager_name} 1:1, where {manager.manager_name}'s "
+        f"name comes up ---\n{text}"
+        for other_manager_name, text in cross_references or []
+    ]
+    cross_ref_text = ("\n\n" + "\n\n".join(cross_ref_blocks)) if cross_ref_blocks else ""
 
     return f"""You are briefing the person who runs a recurring 1:1, shortly before it starts.
 
@@ -190,6 +205,13 @@ Return JSON only with this exact shape:
 How to fill each section:
 - commitments: tasks from the MOST RECENT follow-up that should be ready by the
   upcoming meeting. Include the person who owns each one.
+- commitments also includes cross-referenced promises, if any blocks below are
+  labeled "From the ... 1:1, where {manager.manager_name}'s name comes up": add
+  an item ONLY when the HOST (not the other manager) explicitly promised,
+  during that OTHER meeting, to raise or do something specifically involving
+  this person by name. A passing mention of the name is not a commitment —
+  skip it. Set "who" to the host's own name and "since" to name that other
+  meeting, e.g. "зустріч з Iton, 21.09".
 - carried_over: anything from an EARLIER follow-up that still has no resolution.
   Two cases both belong here, and both matter:
   1. Raised again in a later follow-up without being closed — it keeps coming
@@ -223,7 +245,7 @@ Do not invent progress: a follow-up records what was agreed, not what was
 delivered, so treat every task as still open unless a later follow-up says
 otherwise. Never use these characters: * # _ ~ ` [ ] @
 
-{followups_text}
+{followups_text}{cross_ref_text}
 """
 
 
@@ -231,9 +253,20 @@ def build_host_tasks_prompt(
     followup: str,
     host_names: list[str],
     meeting_date: str,
+    other_managers: list[str] | None = None,
 ) -> str:
     """Pull out only what the host personally committed to, with resolvable dates."""
     names = ", ".join(host_names) or "(unknown)"
+    others = ", ".join(other_managers or [])
+    exclusion_rule = (
+        f"""
+- Skip a task when it is really a promise to raise or do something specifically
+  WITH one of these other people, by name: {others}. That belongs to their own
+  1:1 (they get it there instead) — do not also file it here as a generic task.
+"""
+        if others
+        else ""
+    )
     return f"""You are reading a confirmed 1:1 follow-up and listing the tasks that belong to
 the person who runs the meeting, so they can be put on their calendar.
 
@@ -262,7 +295,7 @@ Rules:
   invent a plausible one, and never reuse the meeting date as a stand-in.
 - Keep the task text close to the follow-up wording. Do not invent tasks.
 - Never use these characters: * # _ ~ ` [ ] @
-
+{exclusion_rule}
 Follow-up:
 ---
 {followup}

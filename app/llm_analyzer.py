@@ -107,8 +107,9 @@ class LLMAnalyzer:
         manager: Manager,
         meeting: CalendarMeeting,
         followups: list[str],
+        cross_references: list[tuple[str, str]] | None = None,
     ) -> MeetingReminder:
-        prompt = build_reminder_prompt(manager, meeting, followups)
+        prompt = build_reminder_prompt(manager, meeting, followups, cross_references)
         raw = self._generate(prompt, RawReminder)
         return normalize_reminder(raw)
 
@@ -117,8 +118,9 @@ class LLMAnalyzer:
         followup: str,
         host_names: list[str],
         meeting_date: str,
+        other_managers: list[str] | None = None,
     ) -> list[HostTask]:
-        prompt = build_host_tasks_prompt(followup, host_names, meeting_date)
+        prompt = build_host_tasks_prompt(followup, host_names, meeting_date, other_managers)
         raw = self._generate(prompt, RawHostTasks)
         return normalize_host_tasks(raw)
 

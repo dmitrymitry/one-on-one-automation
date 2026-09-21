@@ -44,3 +44,22 @@ def _alias_matches(normalized_title: str, alias: str) -> bool:
         return False
     pattern = rf"(?:^|\s){re.escape(normalized_alias)}(?:$|\s)"
     return re.search(pattern, normalized_title) is not None
+
+
+# Shared across every manager's aliases (e.g. "Vegas Ksu", "Ksu Vegas") because
+# aliases are built for matching a calendar TITLE, not for spotting the
+# person's own name inside free-form prose — matching on it here would flag
+# nearly every follow-up as "mentioning" everyone.
+_NOISE_WORDS = {"vegas", "вегас"}
+
+
+def mentions_manager(text: str, manager: Manager) -> bool:
+    """Whether free-form text (e.g. a DIFFERENT meeting's follow-up) names this
+    person, in whichever alphabet it happened to use (Rule 6, pastka 2).
+    """
+    normalized = f" {normalize_text(text)} "
+    tokens = {normalize_text(manager.manager_name)}
+    for alias in manager.aliases:
+        tokens.update(normalize_text(alias).split())
+    tokens -= _NOISE_WORDS
+    return any(len(token) > 2 and f" {token} " in normalized for token in tokens if token)
