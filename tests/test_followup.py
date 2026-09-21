@@ -250,7 +250,7 @@ def test_calendar_agenda_lists_both_sides_by_name() -> None:
         open_topics=(ReminderOpenTopic(topic="перетин відпусток"),),
     )
 
-    agenda = build_calendar_agenda(reminder)
+    agenda = build_calendar_agenda(make_meeting(), reminder)
 
     # No ТВОЇ/ЇХНІ split: the calendar event is shared, so everyone is named.
     assert "ТВОЇ ЗАДАЧІ" not in agenda
@@ -260,8 +260,19 @@ def test_calendar_agenda_lists_both_sides_by_name() -> None:
     assert "перетин відпусток" in agenda
 
 
+def test_calendar_agenda_opens_with_which_meeting_it_is_for() -> None:
+    reminder = MeetingReminder(open_topics=(ReminderOpenTopic(topic="перетин відпусток"),))
+
+    agenda = build_calendar_agenda(make_meeting(), reminder)
+
+    # Items are dated by when they were RAISED (carried-over, past meetings) —
+    # without saying which meeting this block itself is FOR, a page full of
+    # past dates reads as a stale leftover, not a current agenda.
+    assert agenda.startswith("Актуально до зустрічі 08.09.2026")
+
+
 def test_calendar_agenda_is_empty_when_nothing_is_open() -> None:
-    assert build_calendar_agenda(MeetingReminder()) == ""
+    assert build_calendar_agenda(make_meeting(), MeetingReminder()) == ""
 
 
 def test_merge_calendar_notes_appends_after_existing_content() -> None:
