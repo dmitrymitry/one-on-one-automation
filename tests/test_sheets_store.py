@@ -91,7 +91,10 @@ def test_zero_host_tasks_does_not_mark_meeting_as_scheduled() -> None:
     from app.service import VegasAutomationService
 
     upserts: list[dict] = []
-    sheets = SimpleNamespace(patch_meeting=lambda mid, changes: upserts.append(changes))
+    sheets = SimpleNamespace(
+        patch_meeting=lambda mid, changes: upserts.append(changes),
+        get_managers=lambda: [],
+    )
     llm = SimpleNamespace(extract_host_tasks=lambda *_: [])
     svc = VegasAutomationService.__new__(VegasAutomationService)
     svc.settings = SimpleNamespace(host_name_list=["Олег Ткаченко"])

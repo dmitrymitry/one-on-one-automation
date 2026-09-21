@@ -14,7 +14,7 @@ from .followup import (
 )
 from .gmail_client import GmailTranscriptClient
 from .llm_analyzer import LLMAnalyzer
-from .meeting_matcher import match_manager, normalize_text
+from .meeting_matcher import match_manager, mentions_manager, normalize_text
 from .meeting_summary import build_meeting_summary, summary_recipients
 from .models import CalendarMeeting, Manager, MeetingReminder
 from .sheets_store import GoogleSheetsStore
@@ -116,7 +116,7 @@ class VegasAutomationService:
                 continue
             summary["seen"] += 1
             try:
-                if self._send_one_followup(meeting, manager):
+                if self._send_one_followup(meeting, manager, managers):
                     summary["sent"] += 1
                 else:
                     summary["skipped"] += 1
@@ -352,9 +352,19 @@ class VegasAutomationService:
             return {"status": "already_scheduled", "created": 0}
         if not self.settings.host_name_list:
             return {"status": "skipped", "reason": "HOST_NAME not set", "created": 0}
+        # A task that names another manager belongs on THEIR agenda instead
+        # (_gather_cross_references), not as a generic Google Task here too.
+        other_managers = [
+            other.manager_name
+            for other in self.sheets.get_managers()
+            if other.manager_id != record.get("manager_id")
+        ]
         try:
             tasks = self.llm.extract_host_tasks(
-                text, self.settings.host_name_list, _short_date(record.get("start_at", ""))
+                text,
+                self.settings.host_name_list,
+                _short_date(record.get("start_at", "")),
+                other_managers,
             )
         except Exception:
             LOGGER.exception("Could not extract host tasks for %s", meeting_id)
@@ -407,7 +417,9 @@ class VegasAutomationService:
         except Exception:
             LOGGER.exception("Could not update draft buttons for %s", record.get("meeting_id"))
 
-    def _send_one_followup(self, meeting: CalendarMeeting, manager: Manager) -> bool:
+    def _send_one_followup(
+        self, meeting: CalendarMeeting, manager: Manager, all_managers: list[Manager]
+    ) -> bool:
         current = self.sheets.get_meeting(meeting.meeting_id) or {}
         if current.get("followup_sent_at"):
             return False
@@ -424,7 +436,8 @@ class VegasAutomationService:
         )
         if not followups and not self.settings.telegram_send_empty_followup:
             return False
-        reminder = self.llm.prepare_reminder(manager, meeting, followups)
+        cross_references = self._gather_cross_references(manager, meeting, all_managers)
+        reminder = self.llm.prepare_reminder(manager, meeting, followups, cross_references)
         # Reminders go out a day (or, for Monday, over the weekend) ahead, so the
         # "Сьогодні / Завтра / у понеділок" wording is computed against local now.
         now_local = datetime.now(ZoneInfo(self.settings.app_timezone))
@@ -452,6 +465,30 @@ class VegasAutomationService:
                     )
         self.sheets.patch_meeting(meeting.meeting_id, {"followup_sent_at": _now_iso()})
         return True
+
+    def _gather_cross_references(
+        self, manager: Manager, meeting: CalendarMeeting, all_managers: list[Manager]
+    ) -> list[tuple[str, str]]:
+        """Recent follow-ups from OTHER 1:1s that happen to name this manager.
+
+        A promise made during Iton's meeting ("I'll ask Astra about X") only
+        ever gets written down in Iton's own follow-up — Astra's own reminder
+        would never see it otherwise, since each manager's reminder is built
+        solely from their own follow-up history (Rule 0). Pre-filtered by a
+        plain name match (`mentions_manager`) so the LLM only has to look at
+        blocks that are actually worth checking, not the whole sheet.
+        """
+        cross_references = []
+        for other in all_managers:
+            if other.manager_id == manager.manager_id:
+                continue
+            recent = self.sheets.get_recent_followups(
+                other.manager_id, 1, before=meeting.start_at.isoformat()
+            )
+            for text in recent:
+                if mentions_manager(text, manager):
+                    cross_references.append((other.manager_name, text))
+        return cross_references
 
     def _sync_calendar_agenda(self, meeting: CalendarMeeting, reminder: MeetingReminder) -> None:
         """Write "what to raise" into the event's own notes, next to the Meet link.
