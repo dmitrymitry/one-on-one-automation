@@ -129,8 +129,9 @@ class LLMAnalyzer:
         manager: Manager,
         meeting: CalendarMeeting,
         transcript: str,
+        previous_followups: list[str] | None = None,
     ) -> MeetingSummary:
-        prompt = build_summary_prompt(manager, meeting, transcript)
+        prompt = build_summary_prompt(manager, meeting, transcript, previous_followups)
         raw = self._generate(prompt, RawSummary)
         return normalize_summary(raw)
 
