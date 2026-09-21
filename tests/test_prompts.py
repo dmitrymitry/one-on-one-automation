@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from app.models import CalendarMeeting, Manager
-from app.prompts import build_host_tasks_prompt, build_reminder_prompt
+from app.prompts import build_host_tasks_prompt, build_reminder_prompt, build_summary_prompt
 
 
 def meeting() -> CalendarMeeting:
@@ -42,3 +42,22 @@ def test_host_tasks_prompt_lists_other_managers_to_exclude() -> None:
 
     assert "Ksu, Astra" in prompt
     assert "belongs to their own" in prompt
+
+
+def test_summary_prompt_without_previous_followups_has_no_closure_instructions() -> None:
+    prompt = build_summary_prompt(Manager("snig", "Snig", ("Snig",)), meeting(), "транскрипт")
+
+    assert "Below are the follow-up" not in prompt
+
+
+def test_summary_prompt_includes_previous_followups_for_closure_check() -> None:
+    prompt = build_summary_prompt(
+        Manager("snig", "Snig", ("Snig",)),
+        meeting(),
+        "транскрипт",
+        previous_followups=["минулий фоллоуап з відкритою задачею"],
+    )
+
+    assert "Below are the follow-up" in prompt
+    assert "минулий фоллоуап з відкритою задачею" in prompt
+    assert "--- Follow-up from 1 meeting(s) ago ---" in prompt

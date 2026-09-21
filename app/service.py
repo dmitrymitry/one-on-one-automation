@@ -174,7 +174,12 @@ class VegasAutomationService:
         if current.get("summary_status") in {"draft", "sent"}:
             return
         try:
-            summary = self.llm.summarize(manager, meeting, transcript_text)
+            previous_followups = self.sheets.get_recent_followups(
+                manager.manager_id,
+                self.settings.reminder_followup_count,
+                before=meeting.start_at.isoformat(),
+            )
+            summary = self.llm.summarize(manager, meeting, transcript_text, previous_followups)
             text = build_meeting_summary(meeting, summary)
             recipients = summary_recipients(manager, self.sheets.get_managers(), summary)
             changes = {

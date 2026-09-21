@@ -68,7 +68,31 @@ def build_summary_prompt(
     manager: Manager,
     meeting: CalendarMeeting,
     transcript: str,
+    previous_followups: list[str] | None = None,
 ) -> str:
+    prior_blocks = [
+        f"--- Follow-up from {index} meeting(s) ago ---\n{text}"
+        for index, text in enumerate(previous_followups or [], 1)
+    ]
+    prior_blocks_text = "\n\n".join(prior_blocks)
+    prior_section = (
+        f"""
+Below are the follow-up(s) from before this meeting. Some of their tasks and
+carried-over items may still be open as far as anyone downstream knows — a
+later step only ever sees "still open" unless THIS follow-up explicitly says
+otherwise, since silence is never read as completion. Check the transcript: if
+it confirms that any specific item from these was resolved, answered, done, or
+closed, say so explicitly in this follow-up — inside the theme it naturally
+belongs to, or, if it fits no current theme, as its own short theme (a status
+update with an empty tasks list) named after what got closed. Only note a
+closure the transcript actually confirms; never assume something is done
+merely because this follow-up does not repeat it.
+
+{prior_blocks_text}
+"""
+        if prior_blocks
+        else ""
+    )
     return f"""You are an operations assistant writing a post-meeting follow-up.
 
 Manager: {manager.manager_name}
@@ -80,6 +104,7 @@ Meeting start: {meeting.start_at.isoformat()}
 {GROUNDING_RULE}
 
 {DEADLINE_RULES}
+{prior_section}
 
 Name people by their full name exactly as the transcript introduces them:
 first name and last name (for example "Ірина Коваленко"). Use the full name on
