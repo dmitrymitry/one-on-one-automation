@@ -43,6 +43,21 @@ SCHEMA: dict[str, list[str]] = {
     ],
 }
 
+# summary_message_id holds every Telegram message of one draft: a long
+# follow-up goes out in parts. Not a comma: cells are written USER_ENTERED, and
+# "101,102" would turn into a number. A single id, as rows stored it before,
+# reads as a one-part draft.
+MESSAGE_ID_SEPARATOR = ";"
+
+
+def split_message_ids(value: str) -> list[int]:
+    """The Telegram message ids of one draft, first part first."""
+    return [int(part) for part in str(value).split(MESSAGE_ID_SEPARATOR) if part.strip().isdigit()]
+
+
+def join_message_ids(message_ids: list[int]) -> str:
+    return MESSAGE_ID_SEPARATOR.join(str(message_id) for message_id in message_ids)
+
 
 class GoogleSheetsStore:
     def __init__(self, credentials, settings: Settings):
@@ -218,12 +233,16 @@ class GoogleSheetsStore:
         ]
 
     def get_meeting_by_message_id(self, message_id: str) -> dict[str, Any] | None:
-        """The meeting whose draft lives in this Telegram message, if any."""
+        """The meeting whose draft lives in this Telegram message, if any.
+
+        A long draft is several messages, and a reply to any of them counts.
+        """
         message_id = str(message_id).strip()
-        if not message_id:
+        if not message_id.isdigit():
             return None
         for record in self._records("Meetings"):
-            if record["values"].get("summary_message_id", "").strip() == message_id:
+            parts = split_message_ids(record["values"].get("summary_message_id", ""))
+            if int(message_id) in parts:
                 return record["values"]
         return None
 
