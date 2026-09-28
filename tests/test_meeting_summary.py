@@ -1,13 +1,27 @@
 from datetime import datetime, timezone
 
-from app.llm_analyzer import RawSummary, RawSummaryTask, RawSummaryTheme, normalize_summary
+from app.llm_analyzer import (
+    RawClosedItem,
+    RawSummary,
+    RawSummaryTask,
+    RawSummaryTheme,
+    normalize_summary,
+)
 from app.meeting_summary import (
+    CLOSED_HEADER,
     build_meeting_summary,
     collect_responsible,
     split_for_telegram,
     summary_recipients,
 )
-from app.models import CalendarMeeting, Manager, MeetingSummary, SummaryTask, SummaryTheme
+from app.models import (
+    CalendarMeeting,
+    ClosedItem,
+    Manager,
+    MeetingSummary,
+    SummaryTask,
+    SummaryTheme,
+)
 
 
 def make_meeting() -> CalendarMeeting:
@@ -103,6 +117,55 @@ def test_normalize_summary_drops_themes_without_title() -> None:
     raw = RawSummary(themes=[RawSummaryTheme(title="  ", context="текст")])
 
     assert normalize_summary(raw).themes == ()
+
+
+def test_closed_items_close_the_follow_up_as_their_own_block() -> None:
+    summary = MeetingSummary(
+        themes=(SummaryTheme(title="ТЕМА", context="Обговорили."),),
+        closed=(
+            ClosedItem(
+                item="Додати Олену Степаненко до чатів архівних проєктів", verdict="зроблено"
+            ),
+            ClosedItem(item="Підключення Notion через MCP", verdict="знято, неактуально"),
+        ),
+    )
+
+    text = build_meeting_summary(make_meeting(), summary)
+
+    assert text.endswith(
+        f"{CLOSED_HEADER}\n"
+        "— Додати Олену Степаненко до чатів архівних проєктів — зроблено\n"
+        "— Підключення Notion через MCP — знято, неактуально"
+    )
+
+
+def test_no_closed_block_when_nothing_was_closed() -> None:
+    text = build_meeting_summary(make_meeting(), MeetingSummary(themes=(SummaryTheme("ТЕМА"),)))
+
+    assert CLOSED_HEADER not in text
+
+
+def test_a_meeting_that_only_closed_items_is_not_reported_as_empty() -> None:
+    summary = MeetingSummary(closed=(ClosedItem(item="Запустити чат-бот", verdict="зроблено"),))
+
+    text = build_meeting_summary(make_meeting(), summary)
+
+    assert "Тем для фіксації не знайдено." not in text
+    assert "— Запустити чат-бот — зроблено" in text
+
+
+def test_normalize_summary_keeps_closed_items_once_and_clean() -> None:
+    raw = RawSummary(
+        closed=[
+            RawClosedItem(item="Запустити **чат-бот**", verdict="зроблено"),
+            RawClosedItem(item="запустити чат-бот", verdict="зроблено ще раз"),
+            RawClosedItem(item="  ", verdict="знято"),
+        ]
+    )
+
+    assert normalize_summary(raw).closed == (
+        ClosedItem(item="Запустити чат-бот", verdict="зроблено"),
+    )
 
 
 def make_summary(*responsible: str) -> MeetingSummary:

@@ -9,6 +9,10 @@ TELEGRAM_LIMIT = 4096
 # "до 28.07" inside a task line: the deadline is settled, no gloss needed.
 DATE_IN_TEXT = re.compile(r"\d{1,2}\.\d{2}")
 
+# Heads the last block of a follow-up: items from earlier meetings that this
+# one closed. The reminder and host-task prompts key on this exact wording.
+CLOSED_HEADER = "Закрито з попередніх зустрічей"
+
 
 def collect_responsible(summary: MeetingSummary) -> set[str]:
     """Every person named responsible for at least one task."""
@@ -81,8 +85,18 @@ def build_meeting_summary(meeting: CalendarMeeting, summary: MeetingSummary) -> 
             lines.append(detail)
         blocks.append("\n".join(lines))
 
-    if not summary.themes:
+    if not summary.themes and not summary.closed:
         blocks.append("Тем для фіксації не знайдено.")
+
+    # Last, so the host checks it while validating and a missed verdict is
+    # added with one line. Only an explicit closure ever takes an item off the
+    # next agenda: silence keeps it open.
+    if summary.closed:
+        lines = [
+            f"— {entry.item} — {entry.verdict}" if entry.verdict else f"— {entry.item}"
+            for entry in summary.closed
+        ]
+        blocks.append(CLOSED_HEADER + "\n" + "\n".join(lines))
 
     return "\n\n".join(blocks)
 

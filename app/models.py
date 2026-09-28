@@ -102,6 +102,20 @@ class SummaryTheme:
 
 
 @dataclass(frozen=True)
+class ClosedItem:
+    """An item from an earlier agenda or follow-up that this meeting closed.
+
+    Kept apart from the themes on purpose: a one-line verdict ("чат-бот
+    запустили") is not a theme, and woven into one it got lost — while the
+    reminder drops an item only once a later follow-up says it is closed.
+    """
+
+    item: str
+    verdict: str = ""  # "зроблено", or "знято" plus the reason given
+
+
+@dataclass(frozen=True)
 class MeetingSummary:
     topics: tuple[str, ...] = field(default_factory=tuple)
     themes: tuple[SummaryTheme, ...] = field(default_factory=tuple)
+    closed: tuple[ClosedItem, ...] = field(default_factory=tuple)

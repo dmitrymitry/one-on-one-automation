@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 
+from app.meeting_summary import CLOSED_HEADER
 from app.models import CalendarMeeting, Manager
 from app.prompts import build_host_tasks_prompt, build_reminder_prompt, build_summary_prompt
 
@@ -44,10 +45,11 @@ def test_host_tasks_prompt_lists_other_managers_to_exclude() -> None:
     assert "belongs to their own" in prompt
 
 
-def test_summary_prompt_without_previous_followups_has_no_closure_instructions() -> None:
+def test_summary_prompt_without_checklist_has_no_closure_instructions() -> None:
     prompt = build_summary_prompt(Manager("snig", "Snig", ("Snig",)), meeting(), "транскрипт")
 
-    assert "Below are the follow-up" not in prompt
+    assert "Below is the checklist" not in prompt
+    assert "--- Agenda prepared for THIS meeting" not in prompt
 
 
 def test_summary_prompt_includes_previous_followups_for_closure_check() -> None:
@@ -58,6 +60,43 @@ def test_summary_prompt_includes_previous_followups_for_closure_check() -> None:
         previous_followups=["минулий фоллоуап з відкритою задачею"],
     )
 
-    assert "Below are the follow-up" in prompt
+    assert "Below is the checklist" in prompt
     assert "минулий фоллоуап з відкритою задачею" in prompt
     assert "--- Follow-up from 1 meeting(s) ago ---" in prompt
+
+
+def test_summary_prompt_uses_the_meetings_own_agenda_as_the_checklist() -> None:
+    prompt = build_summary_prompt(
+        Manager("snig", "Snig", ("Snig",)),
+        meeting(),
+        "транскрипт",
+        agenda="— Додати Олену Степаненко до чатів архівних проєктів",
+    )
+
+    assert "Below is the checklist" in prompt
+    assert "--- Agenda prepared for THIS meeting (from its calendar event) ---" in prompt
+    assert "— Додати Олену Степаненко до чатів архівних проєктів" in prompt
+
+
+def test_summary_prompt_reads_do_not_include_as_a_verdict_to_drop() -> None:
+    # 28.09: "не включається в фолоап" was obeyed literally — the item was left
+    # out, silence kept it open, and it came back on the next agenda.
+    prompt = build_summary_prompt(
+        Manager("snig", "Snig", ("Snig",)), meeting(), "транскрипт", agenda="— пункт"
+    )
+
+    assert "is itself a verdict to drop it" in prompt
+    assert '"closed": [' in prompt
+
+
+def test_reminder_prompt_never_reopens_items_from_the_closed_block() -> None:
+    prompt = build_reminder_prompt(Manager("ksu", "Ksu", ("Ksu",)), meeting(), ["фоллоуап"])
+
+    assert f'A follow-up may end with a block headed "{CLOSED_HEADER}"' in prompt
+    assert "Every item listed there is CLOSED" in prompt
+
+
+def test_host_tasks_prompt_skips_the_closed_block() -> None:
+    prompt = build_host_tasks_prompt("текст фоллоуапу", ["Dmytro"], "2026-09-22")
+
+    assert f'Ignore the block headed "{CLOSED_HEADER}" entirely' in prompt

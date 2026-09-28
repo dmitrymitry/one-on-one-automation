@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .config import Settings
 from .models import (
     CalendarMeeting,
+    ClosedItem,
     HostTask,
     Manager,
     MeetingReminder,
@@ -89,11 +90,19 @@ class RawSummaryTheme(BaseModel):
     tasks: list[RawSummaryTask] = Field(default_factory=list)
 
 
+class RawClosedItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    item: str
+    verdict: str = ""
+
+
 class RawSummary(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     topics: list[str] = Field(default_factory=list)
     themes: list[RawSummaryTheme] = Field(default_factory=list)
+    closed: list[RawClosedItem] = Field(default_factory=list)
 
 
 class LLMAnalyzer:
@@ -130,8 +139,9 @@ class LLMAnalyzer:
         meeting: CalendarMeeting,
         transcript: str,
         previous_followups: list[str] | None = None,
+        agenda: str = "",
     ) -> MeetingSummary:
-        prompt = build_summary_prompt(manager, meeting, transcript, previous_followups)
+        prompt = build_summary_prompt(manager, meeting, transcript, previous_followups, agenda)
         raw = self._generate(prompt, RawSummary)
         return normalize_summary(raw)
 
@@ -293,7 +303,19 @@ def normalize_host_tasks(raw: RawHostTasks) -> list[HostTask]:
 def normalize_summary(raw: RawSummary) -> MeetingSummary:
     topics = tuple(cleaned for topic in raw.topics if (cleaned := sanitize_text(topic, 200)))
     themes = tuple(theme for item in raw.themes if (theme := _normalize_theme(item)) is not None)
-    return MeetingSummary(topics=topics, themes=themes)
+    return MeetingSummary(topics=topics, themes=themes, closed=_normalize_closed(raw.closed))
+
+
+def _normalize_closed(items: list[RawClosedItem]) -> tuple[ClosedItem, ...]:
+    closed: list[ClosedItem] = []
+    seen: set[str] = set()
+    for raw_item in items:
+        item = sanitize_text(raw_item.item, 300)
+        if not item or item.casefold() in seen:
+            continue
+        seen.add(item.casefold())
+        closed.append(ClosedItem(item=item, verdict=sanitize_text(raw_item.verdict, 200)))
+    return tuple(closed)
 
 
 def _normalize_theme(item: RawSummaryTheme) -> SummaryTheme | None:

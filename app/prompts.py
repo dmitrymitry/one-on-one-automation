@@ -1,3 +1,4 @@
+from .meeting_summary import CLOSED_HEADER
 from .models import CalendarMeeting, Manager
 
 LANGUAGE_RULE = """
@@ -63,34 +64,69 @@ Always copy the wording the transcript actually used into deadline_note, so a
 human can verify what was agreed against what you computed.
 """.strip()
 
+CLOSURE_RULES = """
+Go through the checklist item by item and look for a verdict on each one
+anywhere in the transcript. The host usually walks the agenda out loud, often
+one short sentence per item, sometimes as a quick recap at the very end of the
+call. Every verdict you find goes into the "closed" list:
+- done, resolved or answered ("зробили", "запустили", "я вже додав",
+  "розібралися", "надіслала") -> verdict "зроблено";
+- dropped as no longer relevant ("неактуально", "знімаємо", "не повертаємось",
+  "не переносимо") -> verdict "знято", plus the reason in a few words when one
+  was given ("знято, клієнт в архіві"). A status alone ("пішов в архів",
+  "чекаємо відповіді") is not a verdict: the item stays open.
+A one-line verdict counts exactly as much as a long discussion. A request not
+to carry an item over or not to put it into the follow-up ("не включай у
+фолоап", "не треба переносити") is itself a verdict to drop it: list it as
+"знято". Leaving such an item out would do the opposite of what was asked,
+because anything not closed here stays open.
+
+Word each closed item the way the checklist words it, so a later step can
+match it. List only verdicts the transcript actually contains: an item that
+was merely discussed, is still in progress, or never came up stays out of this
+list. Never infer that something is done from silence. Do not create a theme
+just to report a closure; the closed list is where closures go.
+""".strip()
+
 
 def build_summary_prompt(
     manager: Manager,
     meeting: CalendarMeeting,
     transcript: str,
     previous_followups: list[str] | None = None,
+    agenda: str = "",
 ) -> str:
-    prior_blocks = [
+    """Draft the follow-up; `agenda` is the list prepared for THIS meeting.
+
+    The agenda (from the event's own notes) and the earlier follow-ups form
+    the checklist of items still open going in. Each verdict on them is
+    recorded in its own list instead of being woven into a theme: woven in,
+    one-line verdicts were lost about half the time, and an item stays on the
+    next agenda until a follow-up explicitly closes it.
+    """
+    checklist = []
+    if agenda.strip():
+        checklist.append(
+            f"--- Agenda prepared for THIS meeting (from its calendar event) ---\n{agenda.strip()}"
+        )
+    checklist.extend(
         f"--- Follow-up from {index} meeting(s) ago ---\n{text}"
         for index, text in enumerate(previous_followups or [], 1)
-    ]
-    prior_blocks_text = "\n\n".join(prior_blocks)
-    prior_section = (
+    )
+    checklist_text = "\n\n".join(checklist)
+    checklist_section = (
         f"""
-Below are the follow-up(s) from before this meeting. Some of their tasks and
-carried-over items may still be open as far as anyone downstream knows — a
-later step only ever sees "still open" unless THIS follow-up explicitly says
-otherwise, since silence is never read as completion. Check the transcript: if
-it confirms that any specific item from these was resolved, answered, done, or
-closed, say so explicitly in this follow-up — inside the theme it naturally
-belongs to, or, if it fits no current theme, as its own short theme (a status
-update with an empty tasks list) named after what got closed. Only note a
-closure the transcript actually confirms; never assume something is done
-merely because this follow-up does not repeat it.
+Below is the checklist of items that were still open going into this meeting:
+the agenda prepared for it, when there is one, and the follow-ups from the
+meetings before. A later step treats an item as closed only when a follow-up
+says so explicitly, since silence is never read as completion. So every
+verdict the transcript gives on these items has to be recorded here.
 
-{prior_blocks_text}
+{CLOSURE_RULES}
+
+{checklist_text}
 """
-        if prior_blocks
+        if checklist
         else ""
     )
     return f"""You are an operations assistant writing a post-meeting follow-up.
@@ -104,7 +140,7 @@ Meeting start: {meeting.start_at.isoformat()}
 {GROUNDING_RULE}
 
 {DEADLINE_RULES}
-{prior_section}
+{checklist_section}
 
 Name people by their full name exactly as the transcript introduces them:
 first name and last name (for example "Ірина Коваленко"). Use the full name on
@@ -127,11 +163,19 @@ Return JSON only with this exact shape:
         }}
       ]
     }}
+  ],
+  "closed": [
+    {{
+      "item": "a checklist item this meeting closed, worded as the checklist words it",
+      "verdict": "зроблено, or знято plus the reason given, in a few words"
+    }}
   ]
 }}
 
 Rules:
 - topics is the meeting summary: one short line per main theme discussed.
+- closed holds the verdicts on checklist items, as described above. It stays
+  empty when there is no checklist or the transcript closes nothing on it.
 - Every theme discussed becomes an entry in themes, in the order it came up.
 - A theme that is only a status update has an empty tasks list. Do not invent tasks.
 - Add a task only when the transcript contains a concrete commitment.
@@ -198,6 +242,13 @@ there may name a theme that was deliberately removed. Take every item solely
 from the numbered theme blocks ("1. THEME", "1.1. task") and their tasks. If a
 topic appears in that opening list but has no numbered block, it does not exist
 for you: never turn it into a question, a commitment or a carried-over item.
+
+A follow-up may end with a block headed "{CLOSED_HEADER}". Each line
+there names an item from an earlier meeting and its verdict: "зроблено" (done)
+or "знято" (dropped). Every item listed there is CLOSED. Never report it, or
+anything that is plainly the same item in other words, as a commitment, a
+carried-over item or an open topic, whichever follow-up it first came from.
+That block is a record of closures, not a theme: take nothing from it.
 
 Return JSON only with this exact shape:
 {{
@@ -268,7 +319,8 @@ field empty only when the follow-up genuinely does not say.
 
 Do not invent progress: a follow-up records what was agreed, not what was
 delivered, so treat every task as still open unless a later follow-up says
-otherwise. Never use these characters: * # _ ~ ` [ ] @
+otherwise, in a theme or in its "{CLOSED_HEADER}" block. Never use
+these characters: * # _ ~ ` [ ] @
 
 {followups_text}{cross_ref_text}
 """
@@ -319,6 +371,8 @@ Rules:
   following year. Leave deadline empty when the follow-up gives none — never
   invent a plausible one, and never reuse the meeting date as a stand-in.
 - Keep the task text close to the follow-up wording. Do not invent tasks.
+- Ignore the block headed "{CLOSED_HEADER}" entirely: it lists items
+  already done or dropped, never a task to schedule.
 - Never use these characters: * # _ ~ ` [ ] @
 {exclusion_rule}
 Follow-up:
