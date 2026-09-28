@@ -64,7 +64,7 @@ Always copy the wording the transcript actually used into deadline_note, so a
 human can verify what was agreed against what you computed.
 """.strip()
 
-CLOSURE_RULES = """
+CLOSURE_RULES = f"""
 Go through the checklist item by item and look for a verdict on each one
 anywhere in the transcript. The host usually walks the agenda out loud, often
 one short sentence per item, sometimes as a quick recap at the very end of the
@@ -75,17 +75,26 @@ call. Every verdict you find goes into the "closed" list:
   "не переносимо") -> verdict "знято", plus the reason in a few words when one
   was given ("знято, клієнт в архіві"). A status alone ("пішов в архів",
   "чекаємо відповіді") is not a verdict: the item stays open.
-A one-line verdict counts exactly as much as a long discussion. A request not
-to carry an item over or not to put it into the follow-up ("не включай у
-фолоап", "не треба переносити") is itself a verdict to drop it: list it as
-"знято". Leaving such an item out would do the opposite of what was asked,
-because anything not closed here stays open.
+A one-line verdict counts exactly as much as a long discussion. For an item on
+the checklist, a request not to carry it over or not to put it into the
+follow-up ("не включай у фолоап", "не треба переносити") is itself a verdict
+to drop it: list it as "знято". Leaving such an item out would do the opposite
+of what was asked, because anything not closed here stays open. A topic that
+is NOT on the checklist and that someone asks to keep out of the follow-up
+stays out entirely: no theme, no closed entry.
+
+When the answer to an item is a new task (someone takes it on, a next step is
+agreed), write that task in its theme as usual. Close the old item only when
+it is itself done or dropped; closing it never closes the new task.
 
 Word each closed item the way the checklist words it, so a later step can
 match it. List only verdicts the transcript actually contains: an item that
 was merely discussed, is still in progress, or never came up stays out of this
 list. Never infer that something is done from silence. Do not create a theme
-just to report a closure; the closed list is where closures go.
+just to report a closure; the closed list is where closures go. Items already
+listed under "{CLOSED_HEADER}" in an earlier follow-up are closed:
+never list them again. The "Підсумок зустрічі" list of an earlier follow-up is
+only a table of contents: take no item from it.
 """.strip()
 
 
@@ -245,10 +254,14 @@ for you: never turn it into a question, a commitment or a carried-over item.
 
 A follow-up may end with a block headed "{CLOSED_HEADER}". Each line
 there names an item from an earlier meeting and its verdict: "зроблено" (done)
-or "знято" (dropped). Every item listed there is CLOSED. Never report it, or
-anything that is plainly the same item in other words, as a commitment, a
-carried-over item or an open topic, whichever follow-up it first came from.
-That block is a record of closures, not a theme: take nothing from it.
+or "знято" (dropped). That item is CLOSED as of that follow-up: never report
+it, or anything that is plainly the same item in other words, as it was raised
+in that follow-up or in any older one. A closure never reaches forward: a task
+written in the numbered themes of the same follow-up, or in any newer
+follow-up, is a new commitment and stays open even when it concerns the same
+subject (a closed "запитати у Ксю про рахунок" does not close a new "нагадати
+Ксю про рахунок"). The block is a record of closures, not a theme: take no
+item from it.
 
 Return JSON only with this exact shape:
 {{

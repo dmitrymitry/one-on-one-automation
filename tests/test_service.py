@@ -1,7 +1,9 @@
+import logging
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from app.models import CalendarMeeting, Manager
+from app.followup import merge_calendar_notes
+from app.models import CalendarMeeting, Manager, MeetingSummary
 from app.service import VegasAutomationService
 
 
@@ -46,17 +48,14 @@ def test_never_scans_the_managers_own_followups_as_a_cross_reference() -> None:
     assert svc._gather_cross_references(ksu, meeting(), [ksu]) == []
 
 
-def test_follow_up_gets_the_meetings_own_agenda_as_its_checklist() -> None:
-    from app.followup import merge_calendar_notes
-    from app.models import MeetingSummary
-
-    calls: dict = {}
+def drafting_service(row: dict, calls: dict) -> VegasAutomationService:
+    """Just enough of the service to run _prepare_meeting_summary offline."""
     svc = VegasAutomationService.__new__(VegasAutomationService)
     svc.settings = SimpleNamespace(
         reminder_followup_count=6, host_telegram_chat_id="", summary_auto_send=False
     )
     svc.sheets = SimpleNamespace(
-        get_meeting=lambda meeting_id: {},
+        get_meeting=lambda meeting_id: row,
         get_recent_followups=lambda manager_id, limit, before="": ["минулий фоллоуап"],
         get_managers=lambda: [],
         patch_meeting=lambda meeting_id, changes: calls.update(patched=changes),
@@ -67,20 +66,53 @@ def test_follow_up_gets_the_meetings_own_agenda_as_its_checklist() -> None:
         return MeetingSummary()
 
     svc.llm = SimpleNamespace(summarize=summarize)
+    return svc
+
+
+def meeting_with_notes(description: str) -> CalendarMeeting:
     base = meeting()
-    notes = merge_calendar_notes("Meet: https://meet.google.com/abc", "— Запустити чат-бот")
-    with_agenda = CalendarMeeting(
+    return CalendarMeeting(
         base.meeting_id,
         base.title,
         base.start_at,
         base.end_at,
         base.calendar_id,
-        description=notes,
+        description=description,
     )
-    ksu = Manager("ksu", "Ksu", ("Ksu",))
 
-    svc._prepare_meeting_summary(with_agenda, ksu, "транскрипт")
+
+def test_follow_up_gets_the_meetings_own_agenda_as_its_checklist() -> None:
+    calls: dict = {}
+    svc = drafting_service({}, calls)
+    notes = merge_calendar_notes("Meet: https://meet.google.com/abc", "— Запустити чат-бот")
+
+    svc._prepare_meeting_summary(meeting_with_notes(notes), Manager("ksu", "Ksu", ()), "текст")
 
     assert calls["agenda"] == "— Запустити чат-бот"
     assert calls["previous"] == ["минулий фоллоуап"]
     assert calls["patched"]["summary_status"] == "draft"
+
+
+def test_warns_when_a_synced_agenda_no_longer_reads_back(caplog) -> None:
+    # Edited in the Calendar UI, the notes can come back as HTML without our
+    # marker: the follow-up then silently loses its main checklist.
+    calls: dict = {}
+    svc = drafting_service({"calendar_notes_synced_hash": "abc123"}, calls)
+
+    with caplog.at_level(logging.WARNING, logger="app.service"):
+        svc._prepare_meeting_summary(
+            meeting_with_notes("<p>Meet</p><br>ПОРЯДОК ДЕННИЙ"), Manager("ksu", "Ksu", ()), "т"
+        )
+
+    assert calls["agenda"] == ""
+    assert "Agenda block not found" in caplog.text
+
+
+def test_no_warning_when_no_agenda_was_ever_written(caplog) -> None:
+    calls: dict = {}
+    svc = drafting_service({}, calls)
+
+    with caplog.at_level(logging.WARNING, logger="app.service"):
+        svc._prepare_meeting_summary(meeting_with_notes(""), Manager("ksu", "Ksu", ()), "т")
+
+    assert "Agenda block not found" not in caplog.text
