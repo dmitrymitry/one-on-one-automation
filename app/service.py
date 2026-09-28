@@ -10,6 +10,7 @@ from .followup import (
     build_calendar_agenda,
     build_participant_reminder,
     build_reminder,
+    extract_calendar_agenda,
     merge_calendar_notes,
 )
 from .gmail_client import GmailTranscriptClient
@@ -179,7 +180,12 @@ class VegasAutomationService:
                 self.settings.reminder_followup_count,
                 before=meeting.start_at.isoformat(),
             )
-            summary = self.llm.summarize(manager, meeting, transcript_text, previous_followups)
+            # The agenda this very meeting was prepared with: the checklist the
+            # host walks through, so each verdict on it lands in the follow-up.
+            agenda = extract_calendar_agenda(meeting.description)
+            summary = self.llm.summarize(
+                manager, meeting, transcript_text, previous_followups, agenda
+            )
             text = build_meeting_summary(meeting, summary)
             recipients = summary_recipients(manager, self.sheets.get_managers(), summary)
             changes = {

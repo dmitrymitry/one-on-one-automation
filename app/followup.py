@@ -169,6 +169,19 @@ def merge_calendar_notes(existing: str, agenda: str) -> str:
     return f"{head}\n\n{block}" if head else block
 
 
+def extract_calendar_agenda(description: str) -> str:
+    """Our own agenda block from an event's notes, without the marker.
+
+    The inverse of `merge_calendar_notes`. After the meeting this is the list
+    the host walked through, so the follow-up can check each item for a
+    verdict. "" when the event carries no agenda of ours.
+    """
+    marker_pos = description.find(CALENDAR_AGENDA_MARKER)
+    if marker_pos == -1:
+        return ""
+    return description[marker_pos + len(CALENDAR_AGENDA_MARKER) :].strip()
+
+
 def _split_by_owner(
     commitments: tuple[ReminderCommitment, ...],
     host_names: list[str],

@@ -5,6 +5,7 @@ from app.followup import (
     build_calendar_agenda,
     build_participant_reminder,
     build_reminder,
+    extract_calendar_agenda,
     is_host,
     merge_calendar_notes,
     relative_day,
@@ -307,3 +308,16 @@ def test_merge_calendar_notes_works_on_an_empty_description() -> None:
     merged = merge_calendar_notes("", "— зробити X")
 
     assert merged == f"{CALENDAR_AGENDA_MARKER}\n\n— зробити X"
+
+
+def test_extract_calendar_agenda_reads_back_our_own_block() -> None:
+    notes = merge_calendar_notes(
+        "Meet: https://meet.google.com/abc", "Актуально до зустрічі\n\n— X"
+    )
+
+    assert extract_calendar_agenda(notes) == "Актуально до зустрічі\n\n— X"
+
+
+def test_extract_calendar_agenda_is_empty_without_our_block() -> None:
+    assert extract_calendar_agenda("Meet: https://meet.google.com/abc") == ""
+    assert extract_calendar_agenda("") == ""

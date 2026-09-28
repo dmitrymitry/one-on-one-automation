@@ -44,3 +44,43 @@ def test_never_scans_the_managers_own_followups_as_a_cross_reference() -> None:
     svc = make_service({"ksu": ["Ксю попросила надіслати звіт"]})
 
     assert svc._gather_cross_references(ksu, meeting(), [ksu]) == []
+
+
+def test_follow_up_gets_the_meetings_own_agenda_as_its_checklist() -> None:
+    from app.followup import merge_calendar_notes
+    from app.models import MeetingSummary
+
+    calls: dict = {}
+    svc = VegasAutomationService.__new__(VegasAutomationService)
+    svc.settings = SimpleNamespace(
+        reminder_followup_count=6, host_telegram_chat_id="", summary_auto_send=False
+    )
+    svc.sheets = SimpleNamespace(
+        get_meeting=lambda meeting_id: {},
+        get_recent_followups=lambda manager_id, limit, before="": ["минулий фоллоуап"],
+        get_managers=lambda: [],
+        patch_meeting=lambda meeting_id, changes: calls.update(patched=changes),
+    )
+
+    def summarize(manager, meeting, transcript, previous_followups, agenda=""):
+        calls.update(previous=previous_followups, agenda=agenda)
+        return MeetingSummary()
+
+    svc.llm = SimpleNamespace(summarize=summarize)
+    base = meeting()
+    notes = merge_calendar_notes("Meet: https://meet.google.com/abc", "— Запустити чат-бот")
+    with_agenda = CalendarMeeting(
+        base.meeting_id,
+        base.title,
+        base.start_at,
+        base.end_at,
+        base.calendar_id,
+        description=notes,
+    )
+    ksu = Manager("ksu", "Ksu", ("Ksu",))
+
+    svc._prepare_meeting_summary(with_agenda, ksu, "транскрипт")
+
+    assert calls["agenda"] == "— Запустити чат-бот"
+    assert calls["previous"] == ["минулий фоллоуап"]
+    assert calls["patched"]["summary_status"] == "draft"
