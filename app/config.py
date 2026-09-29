@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # How many past follow-ups feed the pre-meeting reminder. Wide enough that a
     # topic raised months ago and never decided still surfaces.
     reminder_followup_count: int = Field(default=6, ge=1)
+    # Cap on "Піднімали, але не вирішили" in the agenda. Each line is a question
+    # the host has to raise; ten of them read as noise, not an agenda.
+    reminder_open_topics_limit: int = Field(default=5, ge=0)
     # Meeting summaries are drafted for manual review; flip on to dispatch automatically.
     summary_auto_send: bool = False
 
