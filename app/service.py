@@ -120,6 +120,13 @@ class VegasAutomationService:
             if not manager:
                 continue
             summary["seen"] += 1
+            if meeting.declined and self.settings.skip_declined_meetings:
+                # Not going to happen: no reminder to either side, no agenda.
+                # Nothing is lost: the items wait for the next date. The
+                # transcript is still awaited, in case it happened anyway.
+                LOGGER.info("Meeting %s was declined, no reminder", meeting.meeting_id)
+                summary["skipped"] += 1
+                continue
             try:
                 if self._send_one_followup(meeting, manager, managers):
                     summary["sent"] += 1
