@@ -311,25 +311,26 @@ How to fill each section:
      so silence is not completion. Say in `since` which meeting it came from
      and that it has not come up since.
   Leave this list empty only when there is a single follow-up to work from.
-- open_topics: questions the participants explicitly LEFT OPEN, with nobody
-  owning them. Every line here is something the host will have to raise, so
-  keep the list short and never pad it with status. List a topic only when a
-  follow-up shows one of these:
-  - a decision explicitly deferred or not taken yet ("повернемось пізніше",
-    "поки не вирішили", "треба подумати");
+- open_topics: questions LEFT OPEN at a meeting, with nobody owning them: what
+  the host should raise so it does not get lost. List a topic when a follow-up
+  shows one of these:
+  - a decision not taken yet or explicitly put off ("чи беремо в роботу",
+    "повернемось після…", "поки не вирішили", "треба погодити");
   - a question someone asked that got no answer;
-  - an outcome the participants said they are waiting for and will check on.
-  A theme that only reports a status, a result, a mood or work in progress is
-  NOT an open topic, even with no task under it: the host heard it at that
-  meeting and will hear the news at the next one without a reminder.
-  Take open topics from the MOST RECENT follow-up. An older one belongs here
-  only when a later follow-up shows it still undecided, so it keeps coming
-  back: list those first and say in `since` that it has come up repeatedly. A
-  topic raised once in an older follow-up and never again has faded: leave it
-  out. (Tasks are different: they have an owner, and carried_over keeps them.)
+  - an issue still unresolved that came up in more than one follow-up, so it
+    keeps coming back: list these first and say so in `since`.
+  A theme that only reports a status, a result, a mood or work in progress,
+  with nothing left to decide ("клієнт задоволений", "кампанії запущено",
+  "оплата очікується в кінці місяця"), is NOT an open topic, even with no task
+  under it: the host will hear the news at the next meeting anyway.
+  Take topics from the most recent follow-up (Follow-up 1), however long ago it
+  was written. From an older follow-up take only an issue that keeps coming
+  back; a topic raised once in an older follow-up and never again has faded:
+  leave it out. (Tasks are different: they have an owner, and carried_over
+  keeps them.)
   Never restate a commitment or a carried-over item here: the host already reads
   those lists and will ask about them. At most {open_topics_limit}, most
-  important first. An empty list is a good answer when nothing was left open.
+  important first. Return an empty list only when nothing was left open.
 
 Always fill who, timing and since when the follow-up states them: the host reads
 this to know who owes what, by when, and which meeting it came from. Leave a
