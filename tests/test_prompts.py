@@ -5,6 +5,11 @@ from app.models import CalendarMeeting, Manager
 from app.prompts import build_host_tasks_prompt, build_reminder_prompt, build_summary_prompt
 
 
+def flat(text: str) -> str:
+    """Prompt prose with line wrapping undone, so phrase checks survive rewording."""
+    return " ".join(text.split())
+
+
 def meeting() -> CalendarMeeting:
     start = datetime(2026, 9, 22, 12, tzinfo=timezone.utc)
     return CalendarMeeting("event-1", "Vegas & Ksu / Weekly", start, start, "primary")
@@ -85,18 +90,32 @@ def test_summary_prompt_reads_do_not_include_as_a_verdict_to_drop() -> None:
         Manager("snig", "Snig", ("Snig",)), meeting(), "транскрипт", agenda="— пункт"
     )
 
-    assert "is itself a verdict to drop it" in prompt
-    assert '"closed": [' in prompt
+    assert "is itself a verdict to drop it" in flat(prompt)
+    assert '"closed": [' in flat(prompt)
+
+
+def test_summary_prompt_keeps_an_excluded_new_topic_out_of_the_closed_block() -> None:
+    # The closed block reaches the PM: a topic someone asked to keep out of the
+    # follow-up must not surface there just because it was excluded.
+    prompt = build_summary_prompt(
+        Manager("snig", "Snig", ("Snig",)), meeting(), "транскрипт", agenda="— пункт"
+    )
+
+    assert "stays out entirely: no theme, no closed entry" in flat(prompt)
+    assert "closing it never closes the new task" in flat(prompt)
+    assert f'Items already listed under "{CLOSED_HEADER}"' in flat(prompt)
 
 
 def test_reminder_prompt_never_reopens_items_from_the_closed_block() -> None:
     prompt = build_reminder_prompt(Manager("ksu", "Ksu", ("Ksu",)), meeting(), ["фоллоуап"])
 
-    assert f'A follow-up may end with a block headed "{CLOSED_HEADER}"' in prompt
-    assert "Every item listed there is CLOSED" in prompt
+    assert f'A follow-up may end with a block headed "{CLOSED_HEADER}"' in flat(prompt)
+    assert "That item is CLOSED as of that follow-up" in flat(prompt)
+    # A newer task on the same subject must survive an older closure.
+    assert "A closure never reaches forward" in flat(prompt)
 
 
 def test_host_tasks_prompt_skips_the_closed_block() -> None:
     prompt = build_host_tasks_prompt("текст фоллоуапу", ["Dmytro"], "2026-09-22")
 
-    assert f'Ignore the block headed "{CLOSED_HEADER}" entirely' in prompt
+    assert f'Ignore the block headed "{CLOSED_HEADER}" entirely' in flat(prompt)

@@ -183,6 +183,14 @@ class VegasAutomationService:
             # The agenda this very meeting was prepared with: the checklist the
             # host walks through, so each verdict on it lands in the follow-up.
             agenda = extract_calendar_agenda(meeting.description)
+            if not agenda and current.get("calendar_notes_synced_hash"):
+                # We wrote an agenda, but it no longer reads back: the notes were
+                # likely edited in the Calendar UI (which can turn them into
+                # HTML). Only the previous follow-ups serve as the checklist then.
+                LOGGER.warning(
+                    "Agenda block not found in the notes of %s; checking previous follow-ups only",
+                    meeting.meeting_id,
+                )
             summary = self.llm.summarize(
                 manager, meeting, transcript_text, previous_followups, agenda
             )
