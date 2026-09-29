@@ -153,10 +153,35 @@ def test_normalize_reminder_drops_empty_and_duplicate_entries() -> None:
     assert [item.topic for item in reminder.open_topics] == ["бюджет"]
 
 
-def test_normalize_reminder_caps_open_topics_at_ten() -> None:
+def test_normalize_reminder_caps_open_topics() -> None:
+    # Ten questions per agenda read as noise; the cap is a setting, 5 by default.
     raw = RawReminder(open_topics=[RawOpenTopic(topic=f"тема {i}") for i in range(15)])
 
-    assert len(normalize_reminder(raw).open_topics) == 10
+    assert len(normalize_reminder(raw).open_topics) == 5
+    assert len(normalize_reminder(raw, open_topics_limit=2).open_topics) == 2
+    assert normalize_reminder(raw, open_topics_limit=0).open_topics == ()
+
+
+def test_prepare_reminder_takes_the_cap_from_settings() -> None:
+    from types import SimpleNamespace
+
+    from app.llm_analyzer import LLMAnalyzer
+
+    prompts: list[str] = []
+    analyzer = LLMAnalyzer.__new__(LLMAnalyzer)
+    analyzer.settings = SimpleNamespace(reminder_open_topics_limit=3)
+
+    def generate(prompt, schema):
+        prompts.append(prompt)
+        return RawReminder(open_topics=[RawOpenTopic(topic=f"тема {i}") for i in range(8)])
+
+    analyzer._generate = generate
+    reminder = analyzer.prepare_reminder(
+        Manager("alpha", "Alpha", ("Alpha",)), make_meeting(), ["фоллоуап"]
+    )
+
+    assert len(reminder.open_topics) == 3
+    assert "At most 3, most important first" in " ".join(prompts[0].split())
 
 
 def test_commitments_split_between_host_and_the_other_side() -> None:

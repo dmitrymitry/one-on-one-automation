@@ -118,9 +118,10 @@ class LLMAnalyzer:
         followups: list[str],
         cross_references: list[tuple[str, str]] | None = None,
     ) -> MeetingReminder:
-        prompt = build_reminder_prompt(manager, meeting, followups, cross_references)
+        limit = self.settings.reminder_open_topics_limit
+        prompt = build_reminder_prompt(manager, meeting, followups, cross_references, limit)
         raw = self._generate(prompt, RawReminder)
-        return normalize_reminder(raw)
+        return normalize_reminder(raw, limit)
 
     def extract_host_tasks(
         self,
@@ -243,7 +244,7 @@ def parse_json_response(content: str, schema: type[ModelT]) -> ModelT:
         raise ValueError("LLM returned invalid JSON") from exc
 
 
-def normalize_reminder(raw: RawReminder) -> MeetingReminder:
+def normalize_reminder(raw: RawReminder, open_topics_limit: int = 5) -> MeetingReminder:
     commitments = tuple(
         ReminderCommitment(
             who=sanitize_text(item.who, 120),
@@ -281,7 +282,7 @@ def normalize_reminder(raw: RawReminder) -> MeetingReminder:
     return MeetingReminder(
         commitments=commitments,
         carried_over=carried_over,
-        open_topics=tuple(open_topics[:10]),
+        open_topics=tuple(open_topics[:open_topics_limit]),
     )
 
 

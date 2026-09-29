@@ -119,3 +119,18 @@ def test_host_tasks_prompt_skips_the_closed_block() -> None:
     prompt = build_host_tasks_prompt("текст фоллоуапу", ["Dmytro"], "2026-09-22")
 
     assert f'Ignore the block headed "{CLOSED_HEADER}" entirely' in flat(prompt)
+
+
+def test_reminder_prompt_keeps_status_and_faded_topics_out_of_the_questions() -> None:
+    # 29.09: up to 9 "questions" per agenda, mostly status recaps and topics
+    # raised once weeks ago and never again.
+    prompt = " ".join(
+        build_reminder_prompt(Manager("ksu", "Ksu", ("Ksu",)), meeting(), ["фоллоуап"]).split()
+    )
+
+    assert "is NOT an open topic, even with no task under it" in prompt
+    assert "Take topics from the most recent follow-up (Follow-up 1)" in prompt
+    assert "never again has faded: leave it out" in prompt
+    # 32 -> 2 on the first try: undecided decisions must survive the cut.
+    assert "a decision not taken yet or explicitly put off" in prompt
+    assert "At most 5, most important first" in prompt
