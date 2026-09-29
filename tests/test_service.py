@@ -116,3 +116,51 @@ def test_no_warning_when_no_agenda_was_ever_written(caplog) -> None:
         svc._prepare_meeting_summary(meeting_with_notes(""), Manager("ksu", "Ksu", ()), "т")
 
     assert "Agenda block not found" not in caplog.text
+
+
+def reminder_service(monkeypatch, skip_declined: bool, *meetings: CalendarMeeting):
+    """send_followups over the given meetings, recording which ones got a reminder."""
+    import app.service as service_module
+
+    ksu = Manager("ksu", "Ksu", ("Ksu",))
+    svc = VegasAutomationService.__new__(VegasAutomationService)
+    svc.settings = SimpleNamespace(
+        skip_declined_meetings=skip_declined,
+        reminder_lookahead_hours=24,
+        app_timezone="Europe/Kyiv",
+        calendar_keyword_list=[],
+    )
+    svc.calendar = SimpleNamespace(list_events=lambda start, end: list(meetings))
+    svc.sheets = SimpleNamespace(get_managers=lambda: [ksu])
+    monkeypatch.setattr(service_module, "match_manager", lambda meeting, managers, kw: ksu)
+    reminded: list[str] = []
+    svc._send_one_followup = lambda meeting, manager, managers: (
+        reminded.append(meeting.meeting_id) or True
+    )
+    return svc, reminded
+
+
+def meeting_declined(meeting_id: str, declined: bool) -> CalendarMeeting:
+    base = meeting()
+    return CalendarMeeting(
+        meeting_id, base.title, base.start_at, base.end_at, base.calendar_id, declined=declined
+    )
+
+
+def test_a_declined_meeting_gets_no_reminder(monkeypatch) -> None:
+    svc, reminded = reminder_service(
+        monkeypatch, True, meeting_declined("off", True), meeting_declined("on", False)
+    )
+
+    result = svc.send_followups()
+
+    assert reminded == ["on"]
+    assert result["skipped"] == 1 and result["sent"] == 1
+
+
+def test_declined_meetings_still_remind_when_the_setting_is_off(monkeypatch) -> None:
+    svc, reminded = reminder_service(monkeypatch, False, meeting_declined("off", True))
+
+    svc.send_followups()
+
+    assert reminded == ["off"]

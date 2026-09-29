@@ -24,6 +24,8 @@ class CalendarMeeting:
     calendar_id: str
     html_link: str = ""
     description: str = ""
+    # Somebody the 1:1 needs said no: it is not going to happen.
+    declined: bool = False
 
 
 @dataclass(frozen=True)
