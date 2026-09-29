@@ -1,10 +1,23 @@
+import logging
 from typing import Any
 
 import httpx
 
 from .config import Settings
-from .meeting_summary import split_for_telegram
+from .meeting_summary import TELEGRAM_LIMIT, split_for_telegram
 from .models import Manager
+
+LOGGER = logging.getLogger(__name__)
+
+
+class MessageNotModified(RuntimeError):
+    """Telegram refused an edit because the message already shows exactly that.
+
+    Not a failure: the message is in the state the edit asked for. It is kept
+    apart from real errors so no caller retries it forever, which is what the
+    sheet-edit sync did every cycle with a long follow-up whose visible part
+    had not changed.
+    """
 
 
 class TelegramClient:
@@ -12,6 +25,33 @@ class TelegramClient:
         if not settings.telegram_bot_token:
             raise ValueError("TELEGRAM_BOT_TOKEN is required")
         self.base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
+
+    def send_parts(
+        self,
+        chat_id: str,
+        text: str,
+        thread_id: str = "",
+        reply_markup: dict | None = None,
+    ) -> list[int]:
+        """Send a text as one or more messages. Returns every message id, in order.
+
+        A follow-up over Telegram's 4096-character limit goes out as several
+        messages, and all their ids matter: a reply to any part must find the
+        draft, and an edit must reach every part, not only the last one.
+        """
+        if not chat_id:
+            raise ValueError("Telegram chat ID is required")
+        chunks = split_for_telegram(text)
+        message_ids: list[int] = []
+        for index, chunk in enumerate(chunks):
+            payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
+            if thread_id:
+                payload["message_thread_id"] = int(thread_id)
+            # Buttons belong on the final chunk, where the reader ends up.
+            if reply_markup and index == len(chunks) - 1:
+                payload["reply_markup"] = reply_markup
+            message_ids.append(self._call("sendMessage", payload)["message_id"])
+        return message_ids
 
     def send_message(
         self,
@@ -21,19 +61,7 @@ class TelegramClient:
         reply_markup: dict | None = None,
     ) -> int:
         """Send a message, splitting it if needed. Returns the last message id."""
-        if not chat_id:
-            raise ValueError("Telegram chat ID is required")
-        chunks = split_for_telegram(text)
-        message_id = 0
-        for index, chunk in enumerate(chunks):
-            payload: dict[str, Any] = {"chat_id": chat_id, "text": chunk}
-            if thread_id:
-                payload["message_thread_id"] = int(thread_id)
-            # Buttons belong on the final chunk, where the reader ends up.
-            if reply_markup and index == len(chunks) - 1:
-                payload["reply_markup"] = reply_markup
-            message_id = self._call("sendMessage", payload)["message_id"]
-        return message_id
+        return self.send_parts(chat_id, text, thread_id, reply_markup)[-1]
 
     def edit_message(
         self,
@@ -41,16 +69,41 @@ class TelegramClient:
         message_id: int,
         text: str,
         reply_markup: dict | None = None,
-    ) -> None:
-        """Rewrite an existing message in place."""
+    ) -> bool:
+        """Rewrite one message in place. False when it already showed exactly this.
+
+        One message holds at most 4096 characters, so a long follow-up is
+        edited part by part. Anything longer is cut, and the cut is logged:
+        the reader never sees the rest.
+        """
+        if len(text) > TELEGRAM_LIMIT:
+            LOGGER.warning(
+                "Edit of message %s cut from %s to %s characters",
+                message_id,
+                len(text),
+                TELEGRAM_LIMIT,
+            )
         payload: dict[str, Any] = {
             "chat_id": chat_id,
             "message_id": message_id,
-            "text": text[:4096],
+            "text": text[:TELEGRAM_LIMIT],
         }
         if reply_markup:
             payload["reply_markup"] = reply_markup
-        self._call("editMessageText", payload)
+        try:
+            self._call("editMessageText", payload)
+        except MessageNotModified:
+            return False
+        return True
+
+    def edit_reply_markup(self, chat_id: str, message_id: int, reply_markup: dict) -> bool:
+        """Swap a message's buttons, leaving its text alone. False when unchanged."""
+        payload = {"chat_id": chat_id, "message_id": message_id, "reply_markup": reply_markup}
+        try:
+            self._call("editMessageReplyMarkup", payload)
+        except MessageNotModified:
+            return False
+        return True
 
     def set_webhook(self, url: str, secret: str) -> dict:
         """Point Telegram at a URL. This also ends any long polling on this bot."""
@@ -112,6 +165,8 @@ class TelegramClient:
         # message, and our URL carries the bot token. One 400 would print the
         # token into Cloud Logging, where it is enough to take the bot over.
         if response.status_code >= 400:
+            if "message is not modified" in _description(response):
+                raise MessageNotModified(f"Telegram {method}: message is not modified")
             raise RuntimeError(
                 f"Telegram {method} failed with {response.status_code}: {response.text[:300]}"
             )
@@ -119,3 +174,11 @@ class TelegramClient:
         if not result.get("ok"):
             raise RuntimeError(f"Telegram rejected {method}: {result}")
         return result.get("result", {})
+
+
+def _description(response: httpx.Response) -> str:
+    """Telegram's own explanation of a refusal, or "" when the body is not JSON."""
+    try:
+        return str(response.json().get("description", ""))
+    except ValueError:
+        return ""

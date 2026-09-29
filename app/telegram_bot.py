@@ -164,20 +164,21 @@ class TelegramBot:
         replied = message.get("reply_to_message") or {}
         if not replied:
             return
-        record = self.automation.sheets.get_meeting_by_message_id(str(replied.get("message_id")))
+        replied_id = str(replied.get("message_id"))
+        record = self.automation.sheets.get_meeting_by_message_id(replied_id)
         if not record:
             # Silence here reads as "the edit was lost". Say what to reply to.
             self.telegram.send_message(
                 chat_id,
-                "Це не чернетка фоллоуапу. Щоб правити, відповідай на саме "
-                "повідомлення з чернеткою — воно з кнопкою Підтвердити.",
+                "Це не чернетка фоллоуапу. Щоб правити, відповідай на саму "
+                "чернетку (довгу — на ту її частину, яку правиш).",
             )
             return
         if record.get("summary_status") == "sent":
             self.telegram.send_message(chat_id, "Цей фоллоуап уже надіслано, правити нема чого.")
             return
         try:
-            self.automation.apply_summary_edit(record["meeting_id"], text)
+            edited = self.automation.apply_summary_edit(record["meeting_id"], text, replied_id)
         except ValueError as exc:
             # A refusal the host can act on, e.g. text from another meeting.
             self.telegram.send_message(chat_id, str(exc))
@@ -189,7 +190,11 @@ class TelegramBot:
         # The re-issued draft looks identical to the old one and the old one just
         # vanishes, so without a word there is no way to tell it worked.
         stamp = datetime.now(ZoneInfo(self.settings.app_timezone)).strftime("%H:%M")
-        self.telegram.send_message(chat_id, f"{stamp} правку збережено")
+        # In a long draft a reply replaces one part only: say which, so pasting
+        # the whole follow-up into one part never goes unnoticed.
+        parts = (edited or {}).get("parts", 1)
+        what = f"правку частини {edited['part']} з {parts}" if parts > 1 else "правку"
+        self.telegram.send_message(chat_id, f"{stamp} {what} збережено")
 
     def _onboard(self, chat_id: str, text: str, sender: dict) -> None:
         """A participant connects: ask for their handle, then bind their chat.

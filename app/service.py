@@ -1,5 +1,6 @@
 import hashlib
 import logging
+import re
 from datetime import date, datetime, timedelta, timezone
 from threading import Lock
 from zoneinfo import ZoneInfo
@@ -16,12 +17,15 @@ from .followup import (
 from .gmail_client import GmailTranscriptClient
 from .llm_analyzer import LLMAnalyzer
 from .meeting_matcher import match_manager, mentions_manager, normalize_text
-from .meeting_summary import build_meeting_summary, summary_recipients
+from .meeting_summary import build_meeting_summary, split_for_telegram, summary_recipients
 from .models import CalendarMeeting, Manager, MeetingReminder
-from .sheets_store import GoogleSheetsStore
+from .sheets_store import GoogleSheetsStore, join_message_ids, split_message_ids
 from .telegram_client import TelegramClient
 
 LOGGER = logging.getLogger(__name__)
+
+# First line of a follow-up: its date, "28.09.26" (Rule 2).
+FOLLOWUP_DATE_LINE = re.compile(r"^\d{2}\.\d{2}\.\d{2}\s*$")
 
 
 class VegasAutomationService:
@@ -213,7 +217,7 @@ class VegasAutomationService:
         chat_id = self.settings.host_telegram_chat_id
         if not chat_id:
             return {}
-        message_id = self.telegram.send_message(
+        message_ids = self.telegram.send_parts(
             chat_id,
             text,
             self.settings.host_telegram_thread_id,
@@ -223,49 +227,71 @@ class VegasAutomationService:
         if url:
             self.telegram.send_message(
                 chat_id,
-                f"Чернетка вище. Правити — відповіддю на неї новим текстом, або в таблиці:\n{url}",
+                "Чернетка вище. Правити — відповіддю на неї новим текстом (довгу — "
+                f"на ту частину, яку правиш, текстом цієї частини), або в таблиці:\n{url}",
                 self.settings.host_telegram_thread_id,
             )
-        return {"summary_message_id": str(message_id), "summary_synced_hash": _text_hash(text)}
+        return {
+            "summary_message_id": join_message_ids(message_ids),
+            "summary_synced_hash": _text_hash(text),
+        }
 
     def sync_summary_edits(self) -> dict:
-        """Push follow-up edits made in the sheet onto the Telegram message."""
+        """Push follow-up edits made in the sheet onto the Telegram messages.
+
+        Each part is rewritten in place. When the new text needs a different
+        number of messages, in-place is impossible, so the draft is re-issued.
+        """
         chat_id = self.settings.host_telegram_chat_id
         summary = {"checked": 0, "updated": 0, "failed": 0}
         if not chat_id:
             return summary
         for record in self.sheets.list_meetings_with_drafts():
-            message_id = record.get("summary_message_id", "").strip()
+            message_ids = split_message_ids(record.get("summary_message_id", ""))
             text = record.get("summary_text", "").strip()
-            if not message_id or not text:
+            if not message_ids or not text:
                 continue
             summary["checked"] += 1
             if record.get("summary_synced_hash") == _text_hash(text):
                 continue
             try:
-                self.telegram.edit_message(
-                    chat_id,
-                    int(message_id),
-                    text,
-                    reply_markup=_draft_keyboard(
+                parts = split_for_telegram(text)
+                if len(parts) == len(message_ids):
+                    keyboard = _draft_keyboard(
                         record["meeting_id"], sent=record.get("summary_status") == "sent"
-                    ),
-                )
-                self.sheets.patch_meeting(
-                    record["meeting_id"], {"summary_synced_hash": _text_hash(text)}
-                )
+                    )
+                    for index, (message_id, part) in enumerate(
+                        zip(message_ids, parts, strict=True)
+                    ):
+                        # "Not modified" comes back as False, not an error: an
+                        # unchanged part is already in sync.
+                        self.telegram.edit_message(
+                            chat_id,
+                            message_id,
+                            part,
+                            reply_markup=keyboard if index == len(parts) - 1 else None,
+                        )
+                    changes = {"summary_synced_hash": _text_hash(text)}
+                else:
+                    changes = self._reissue_draft(record, text)
+                self.sheets.patch_meeting(record["meeting_id"], changes)
                 summary["updated"] += 1
             except Exception:
                 summary["failed"] += 1
                 LOGGER.exception("Could not sync summary edit for %s", record.get("meeting_id"))
         return summary
 
-    def apply_summary_edit(self, meeting_id: str, text: str) -> None:
-        """Store a follow-up rewritten by reply and re-issue the draft at the bottom.
+    def apply_summary_edit(
+        self, meeting_id: str, text: str, replied_message_id: str = ""
+    ) -> dict[str, int]:
+        """Store a follow-up corrected by reply and re-issue the draft at the bottom.
 
-        The edited draft is posted as a new message, and the old one removed, so
-        the current version with its button always sits next to the input box
-        and the next reply lands on it.
+        A reply replaces the part of the draft it answers. A short draft is one
+        part, so the reply is the whole new follow-up. A long one came as
+        several messages and cannot be sent back whole: Telegram would split
+        the reply too, and only its first piece would arrive as a reply. So the
+        host corrects it part by part. Returns which part was replaced, for the
+        confirmation line.
         """
         record = self.sheets.get_meeting(meeting_id)
         if not record:
@@ -273,36 +299,83 @@ class VegasAutomationService:
         text = text.strip()
         if not text:
             raise ValueError("Empty follow-up text")
-        _reject_foreign_followup(record, text)
-        changes = {"summary_text": text, "summary_synced_hash": _text_hash(text)}
-        chat_id = self.settings.host_telegram_chat_id
-        old_id = record.get("summary_message_id", "").strip()
-        if chat_id:
-            new_id = self.telegram.send_message(
-                chat_id,
-                text,
-                self.settings.host_telegram_thread_id,
-                reply_markup=_draft_keyboard(
-                    meeting_id, sent=record.get("summary_status") == "sent"
-                ),
+        current = record.get("summary_text", "").strip()
+        parts = split_for_telegram(current) if current else [""]
+        index = self._replied_part(record, parts, replied_message_id)
+        if index == 0:
+            # Only the first part carries the header this guard compares.
+            _reject_foreign_followup(record, text)
+        elif FOLLOWUP_DATE_LINE.match(text.splitlines()[0]):
+            # A whole follow-up pasted into a later part, this meeting's or
+            # another's, would sit in the middle of the draft and go to the PM.
+            raise ValueError(
+                f"Це схоже на весь фоллоуап, а відповідь на частину {index + 1} замінює "
+                "лише цю частину. Відповідай на кожну частину її власним текстом."
             )
-            changes["summary_message_id"] = str(new_id)
-            if old_id:
-                try:
-                    self.telegram.delete_message(chat_id, int(old_id))
-                except Exception:
-                    # Past Telegram's 48h delete window: strip its button instead.
-                    LOGGER.warning("Could not delete old draft %s, removing its button", old_id)
+        parts[index] = text
+        new_text = "\n\n".join(parts)
+        changes = {"summary_text": new_text, "summary_synced_hash": _text_hash(new_text)}
+        if self.settings.host_telegram_chat_id:
+            changes.update(self._reissue_draft(record, new_text))
+        self.sheets.patch_meeting(meeting_id, changes)
+        return {"part": index + 1, "parts": len(parts)}
+
+    def _replied_part(self, record: dict, parts: list[str], replied_message_id: str) -> int:
+        """Which part of the draft a reply answers (0-based)."""
+        if len(parts) == 1:
+            return 0
+        current = record.get("summary_text", "").strip()
+        # Splicing by position is only safe while the chat shows exactly the
+        # parts of the current text, and while those parts join back into it.
+        in_sync = record.get("summary_synced_hash") == _text_hash(current)
+        if not in_sync or "\n\n".join(parts) != current:
+            raise ValueError(
+                "Чернетку щойно змінили в таблиці, і в чаті ще стара версія. Зачекай "
+                "кілька хвилин, поки бот її оновить, і відповідай на нову."
+            )
+        message_ids = split_message_ids(record.get("summary_message_id", ""))
+        replied = int(replied_message_id) if str(replied_message_id).isdigit() else None
+        if len(message_ids) == len(parts) and replied in message_ids:
+            return message_ids.index(replied)
+        if len(message_ids) == 1 and replied == message_ids[0]:
+            # Sent before the bot kept every part: the one id it has is the last.
+            return len(parts) - 1
+        raise ValueError(
+            "Не зрозумів, яку частину чернетки ти правиш. Відповідай на саму частину "
+            "чернетки її виправленим текстом."
+        )
+
+    def _reissue_draft(self, record: dict, text: str) -> dict[str, str]:
+        """Post the draft anew at the bottom of the chat and remove the old parts.
+
+        The newest version then always sits next to the input box, with its
+        button, so the next reply lands on it. Parts older than Telegram's 48h
+        delete window stay; only the button comes off the last of them.
+        """
+        chat_id = self.settings.host_telegram_chat_id
+        new_ids = self.telegram.send_parts(
+            chat_id,
+            text,
+            self.settings.host_telegram_thread_id,
+            reply_markup=_draft_keyboard(
+                record["meeting_id"], sent=record.get("summary_status") == "sent"
+            ),
+        )
+        old_ids = split_message_ids(record.get("summary_message_id", ""))
+        for old_id in old_ids:
+            try:
+                self.telegram.delete_message(chat_id, old_id)
+            except Exception:
+                LOGGER.warning("Could not delete old draft message %s", old_id)
+                if old_id == old_ids[-1]:
                     try:
-                        self.telegram.edit_message(
-                            chat_id,
-                            int(old_id),
-                            record.get("summary_text", text),
-                            reply_markup={"inline_keyboard": []},
-                        )
+                        self.telegram.edit_reply_markup(chat_id, old_id, {"inline_keyboard": []})
                     except Exception:
                         LOGGER.exception("Could not neutralise old draft %s", old_id)
-        self.sheets.patch_meeting(meeting_id, changes)
+        return {
+            "summary_message_id": join_message_ids(new_ids),
+            "summary_synced_hash": _text_hash(text),
+        }
 
     def send_meeting_summary(self, meeting_id: str) -> dict:
         """Dispatch a drafted follow-up after a human has validated it."""
@@ -348,7 +421,7 @@ class VegasAutomationService:
                     "summary_sent_at": _now_iso(),
                 },
             )
-            self._retire_confirm_button(record, text)
+            self._retire_confirm_button(record)
         # Confirm means "validated": the host's own tasks go to the calendar even
         # when nobody could be reached, e.g. while the directory has no chat IDs.
         calendar = self.schedule_host_tasks(record, text)
@@ -421,17 +494,20 @@ class VegasAutomationService:
             "failed": failed,
         }
 
-    def _retire_confirm_button(self, record: dict, text: str) -> None:
-        """Drop the confirm button from the host's copy once the follow-up is out."""
-        message_id = record.get("summary_message_id", "").strip()
-        if not message_id or not self.settings.host_telegram_chat_id:
+    def _retire_confirm_button(self, record: dict) -> None:
+        """Drop the confirm button from the host's copy once the follow-up is out.
+
+        Only the buttons change. Rewriting the text here once put the head of a
+        long follow-up into its last part, the one that carries the button.
+        """
+        message_ids = split_message_ids(record.get("summary_message_id", ""))
+        if not message_ids or not self.settings.host_telegram_chat_id:
             return
         try:
-            self.telegram.edit_message(
+            self.telegram.edit_reply_markup(
                 self.settings.host_telegram_chat_id,
-                int(message_id),
-                text,
-                reply_markup=_draft_keyboard(record["meeting_id"], sent=True),
+                message_ids[-1],
+                _draft_keyboard(record["meeting_id"], sent=True),
             )
         except Exception:
             LOGGER.exception("Could not update draft buttons for %s", record.get("meeting_id"))

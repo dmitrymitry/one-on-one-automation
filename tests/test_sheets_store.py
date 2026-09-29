@@ -349,3 +349,23 @@ def test_write_cells_emits_only_the_changed_columns() -> None:
 
     col = _column_name(SCHEMA["Meetings"].index("summary_status") + 1)
     assert captured["body"]["data"] == [{"range": f"Meetings!{col}5", "values": [["sent"]]}]
+
+
+def test_any_part_of_a_long_draft_finds_its_meeting() -> None:
+    from app.sheets_store import join_message_ids, split_message_ids
+
+    store = make_store(
+        [
+            {"meeting_id": "long", "summary_message_id": join_message_ids([11, 12])},
+            {"meeting_id": "legacy", "summary_message_id": "26"},
+        ]
+    )
+
+    assert store.get_meeting_by_message_id("11")["meeting_id"] == "long"
+    assert store.get_meeting_by_message_id("12")["meeting_id"] == "long"
+    assert store.get_meeting_by_message_id("26")["meeting_id"] == "legacy"
+    assert store.get_meeting_by_message_id("1") is None
+    assert store.get_meeting_by_message_id("") is None
+    # A comma would be read back as a number from a USER_ENTERED cell.
+    assert "," not in join_message_ids([11, 12])
+    assert split_message_ids("") == []

@@ -39,19 +39,29 @@ class FakeSheets:
 
 
 class FakeAutomation:
-    def __init__(self, telegram: FakeTelegram, fail: bool = False, result: dict | None = None):
+    def __init__(
+        self,
+        telegram: FakeTelegram,
+        fail: bool = False,
+        result: dict | None = None,
+        edited: dict | None = None,
+    ):
         self.telegram = telegram
         self.sheets = FakeSheets()
         self.settings = SimpleNamespace(host_telegram_chat_id=HOST, app_timezone="Europe/Kyiv")
         self.applied: list[tuple[str, str]] = []
+        self.replied_to: list[str] = []
         self.confirmed: list[str] = []
         self.fail = fail
         self.result = result or {"status": "sent", "delivered": ["beta"], "failed": []}
+        self.edited = edited or {"part": 1, "parts": 1}
 
-    def apply_summary_edit(self, meeting_id: str, text: str) -> None:
+    def apply_summary_edit(self, meeting_id: str, text: str, replied_message_id: str = "") -> dict:
         if self.fail:
             raise RuntimeError("sheets down")
         self.applied.append((meeting_id, text))
+        self.replied_to.append(replied_message_id)
+        return self.edited
 
     def send_meeting_summary(self, meeting_id: str) -> dict:
         self.confirmed.append(meeting_id)
@@ -90,6 +100,16 @@ def test_reply_to_the_draft_applies_the_edit() -> None:
     # must say something or the edit reads as lost.
     assert len(telegram.sent) == 1
     assert telegram.sent[0][1].endswith("правку збережено")
+
+
+def test_reply_to_a_part_of_a_long_draft_says_which_part_was_replaced() -> None:
+    bot, automation, telegram = make_bot(edited={"part": 2, "parts": 3})
+
+    bot.handle(reply("Виправлена друга частина"))
+
+    # The bot learns which message was answered: that picks the part.
+    assert automation.replied_to == [str(DRAFT_MSG)]
+    assert telegram.sent[-1][1].endswith("правку частини 2 з 3 збережено")
 
 
 def test_plain_message_never_touches_a_draft() -> None:
