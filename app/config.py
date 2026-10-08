@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     # How many past follow-ups feed the pre-meeting reminder. Wide enough that a
     # topic raised months ago and never decided still surfaces.
     reminder_followup_count: int = Field(default=6, ge=1)
+    # A 1:1 somebody declined is not going to happen: no reminder, no agenda.
+    # Its open items wait for the next date, which gets them as usual.
+    skip_declined_meetings: bool = True
     # Cap on "Піднімали, але не вирішили" in the agenda. Each line is a question
     # the host has to raise; ten of them read as noise, not an agenda.
     reminder_open_topics_limit: int = Field(default=5, ge=0)

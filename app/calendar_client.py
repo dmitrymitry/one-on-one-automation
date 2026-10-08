@@ -72,6 +72,19 @@ def _to_meeting(event: dict, calendar_id: str) -> CalendarMeeting:
         calendar_id=calendar_id,
         html_link=event.get("htmlLink", ""),
         description=event.get("description", ""),
+        declined=_declined(event),
+    )
+
+
+def _declined(event: dict) -> bool:
+    """Did anybody the meeting needs decline it? A 1:1 does not happen without both sides.
+
+    Meeting rooms and optional guests do not count: their "no" cancels nothing.
+    """
+    return any(
+        attendee.get("responseStatus") == "declined"
+        for attendee in event.get("attendees", [])
+        if not attendee.get("resource") and not attendee.get("optional")
     )
 
 
