@@ -187,7 +187,15 @@ Rules:
   empty when there is no checklist or the transcript closes nothing on it.
 - Every theme discussed becomes an entry in themes, in the order it came up.
 - A theme that is only a status update has an empty tasks list. Do not invent tasks.
-- Add a task only when the transcript contains a concrete commitment.
+- Add a task whenever the participants agree that someone will do something,
+  even without a date and even when it is said softly ("давай спробую",
+  "домовились, зафіксували", "заплануємо", "тоді лишаємо X і Y"). "Ми" about
+  the manager's own client or project means the manager does it, unless the
+  host says he will. When the meeting picks clients or projects for a task,
+  put every pick in that one task, the reserve too ("X і Y, запасний Z").
+  Vague timing ("після його відпустки", "на наступному тижні") goes into
+  deadline_note. A suggestion that nobody took on stays in the context: it is
+  not a task.
 - A date inside action text appears ONLY when the transcript gave timing for that
   task; write it as DD.MM. Never append a date to make the task look complete.
 - deadline_note carries the timing words as spoken ("завтра", "найближчим часом",

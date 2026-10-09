@@ -134,3 +134,16 @@ def test_reminder_prompt_keeps_status_and_faded_topics_out_of_the_questions() ->
     # 32 -> 2 on the first try: undecided decisions must survive the cut.
     assert "a decision not taken yet or explicitly put off" in prompt
     assert "At most 5, most important first" in prompt
+
+
+def test_summary_prompt_turns_agreed_plans_into_tasks() -> None:
+    # 06-07.10: "Minimal і Скарб тоді лишаємо" and "домовились, зафіксували" for
+    # Basics/ЦУМ demos stayed context only, so no agenda ever chased them.
+    prompt = flat(
+        build_summary_prompt(Manager("astra", "Astra", ("Astra",)), meeting(), "транскрипт")
+    )
+
+    assert "Add a task whenever the participants agree that someone will do something" in prompt
+    assert "means the manager does it, unless the host says he will" in prompt
+    assert "put every pick in that one task, the reserve too" in prompt
+    assert "A suggestion that nobody took on stays in the context" in prompt
