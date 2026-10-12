@@ -31,7 +31,6 @@ def make_meeting() -> CalendarMeeting:
 
 def test_summary_renders_arcv_structure() -> None:
     summary = MeetingSummary(
-        topics=("Збір фідбеку від клієнта",),
         themes=(
             SummaryTheme(
                 title="ЗБІР ФІДБЕКУ",
@@ -50,7 +49,9 @@ def test_summary_renders_arcv_structure() -> None:
     text = build_meeting_summary(make_meeting(), summary)
 
     assert text.startswith("27.07.26\nBeta&Vegas / Weekly")
-    assert "Підсумок зустрічі\n— Збір фідбеку від клієнта" in text
+    # The «Підсумок зустрічі» list is gone since 12.10: the themes speak for themselves.
+    assert "Підсумок зустрічі" not in text
+    assert text.splitlines()[3] == "1. ЗБІР ФІДБЕКУ"
     assert "1. ЗБІР ФІДБЕКУ" in text
     assert "Контекст: Клієнт не дає відкритого зворотного зв'язку." in text
     assert "1.1. Запитати фідбек на дзвінку до 28.07" in text
@@ -78,7 +79,6 @@ def test_status_only_theme_has_no_subtasks() -> None:
 
 def test_normalize_summary_strips_forbidden_characters() -> None:
     raw = RawSummary(
-        topics=["**Важлива** тема"],
         themes=[
             RawSummaryTheme(
                 title="тема з `бектіками`",
@@ -90,7 +90,6 @@ def test_normalize_summary_strips_forbidden_characters() -> None:
 
     summary = normalize_summary(raw)
 
-    assert summary.topics == ("Важлива тема",)
     theme = summary.themes[0]
     assert theme.title == "ТЕМА З БЕКТІКАМИ"
     assert theme.context == "Текст із підкресленням і дужками"

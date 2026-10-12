@@ -60,11 +60,9 @@ def _named_in(names: set[str], responsible: set[str]) -> bool:
 
 
 def build_meeting_summary(meeting: CalendarMeeting, summary: MeetingSummary) -> str:
+    # No «Підсумок зустрічі» list (dropped 12.10): it only repeated the theme
+    # titles, and the reader went straight to the themes anyway.
     blocks = [f"{meeting.start_at:%d.%m.%y}\n{meeting.title}"]
-
-    if summary.topics:
-        topics = "\n".join(f"— {topic}" for topic in summary.topics)
-        blocks.append(f"Підсумок зустрічі\n{topics}")
 
     for index, theme in enumerate(summary.themes, 1):
         lines = [f"{index}. {theme.title}"]

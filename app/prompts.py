@@ -158,7 +158,6 @@ never write a bare @ tag.
 
 Return JSON only with this exact shape:
 {{
-  "topics": ["short topic, 3-7 words"],
   "themes": [
     {{
       "title": "THEME NAME IN UPPERCASE, 3-5 words",
@@ -182,7 +181,6 @@ Return JSON only with this exact shape:
 }}
 
 Rules:
-- topics is the meeting summary: one short line per main theme discussed.
 - closed holds the verdicts on checklist items, as described above. It stays
   empty when there is no checklist or the transcript closes nothing on it.
 - Every theme discussed becomes an entry in themes, in the order it came up.
@@ -253,10 +251,11 @@ You are given the follow-ups written after the previous meetings, newest first.
 Each one already lists the themes, the tasks agreed and who owns them. Work only
 from these: every item you report must appear in them.
 
-Each follow-up opens with a short list under the heading "Підсумок зустрічі".
-IGNORE that list completely. It is only a table of contents, and the host prunes
-the numbered theme blocks below it without always pruning the list, so a line
-there may name a theme that was deliberately removed. Take every item solely
+Follow-ups written before 12.10 open with a short list under the heading
+"Підсумок зустрічі". IGNORE that list completely. It is only a table of
+contents, and the host prunes the numbered theme blocks below it without
+always pruning the list, so a line there may name a theme that was
+deliberately removed. Take every item solely
 from the numbered theme blocks ("1. THEME", "1.1. task") and their tasks. If a
 topic appears in that opening list but has no numbered block, it does not exist
 for you: never turn it into a question, a commitment or a carried-over item.
