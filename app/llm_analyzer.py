@@ -100,7 +100,6 @@ class RawClosedItem(BaseModel):
 class RawSummary(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    topics: list[str] = Field(default_factory=list)
     themes: list[RawSummaryTheme] = Field(default_factory=list)
     closed: list[RawClosedItem] = Field(default_factory=list)
 
@@ -302,9 +301,8 @@ def normalize_host_tasks(raw: RawHostTasks) -> list[HostTask]:
 
 
 def normalize_summary(raw: RawSummary) -> MeetingSummary:
-    topics = tuple(cleaned for topic in raw.topics if (cleaned := sanitize_text(topic, 200)))
     themes = tuple(theme for item in raw.themes if (theme := _normalize_theme(item)) is not None)
-    return MeetingSummary(topics=topics, themes=themes, closed=_normalize_closed(raw.closed))
+    return MeetingSummary(themes=themes, closed=_normalize_closed(raw.closed))
 
 
 def _normalize_closed(items: list[RawClosedItem]) -> tuple[ClosedItem, ...]:

@@ -118,6 +118,5 @@ class ClosedItem:
 
 @dataclass(frozen=True)
 class MeetingSummary:
-    topics: tuple[str, ...] = field(default_factory=tuple)
     themes: tuple[SummaryTheme, ...] = field(default_factory=tuple)
     closed: tuple[ClosedItem, ...] = field(default_factory=tuple)
