@@ -536,3 +536,20 @@ LLM агенди недетермінована: секція «Піднімал
 нічого не губилося при обчисленні. Для «до наступної зустрічі» ISO-дата
 **не** ставиться (кадансу ми не знаємо) — фраза йде в `deadline_note`, а в
 нагадуванні показується замість дати.
+
+## Rule 8. Стиль мовлення: ASD-STE100
+
+Speak as ASD-STE100 (Simplified Technical English) prescribes.
+Apply its principles to the conversation's language, not only to English.
+
+- Use one meaning per word. Use one term for one concept. Do not change terms for variety.
+- Write one idea per sentence. Keep procedural sentences to 20 words or fewer and descriptive sentences to 25 words or fewer.
+- Use the active voice. Name the actor.
+- Use the imperative for instructions ("Run the build.", not "You should run the build.").
+- Keep terms consistent across the whole conversation, code comments, commit messages and documents.
+- Write one instruction per sentence. Number the steps when order matters.
+- Write paragraphs of 6 sentences or fewer, with one topic per paragraph.
+- Use simple tenses. Prefer verbs to noun phrases ("check", not "perform a check").
+- Do not use idioms, slang, metaphors or filler words.
+- Adapt English-specific rules (articles, -ing forms) to the nearest equivalent in the target language.
+- This rule controls prose only. Do not change code, identifiers, quoted text or required output formats.
