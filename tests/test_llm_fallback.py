@@ -1,8 +1,9 @@
 from types import SimpleNamespace
 
 import pytest
+from google.genai import errors
 
-from app.llm_analyzer import LLMAnalyzer, RawHostTasks, _status_code
+from app.llm_analyzer import LLMAnalyzer, RawHostTasks, _status_code, describe_failure
 
 
 class FakeError(Exception):
@@ -159,3 +160,35 @@ def test_key_without_credits_is_skipped_on_weaker_models() -> None:
     analyzer._generate_gemini("p", RawHostTasks)
 
     assert models.tried == [("strong", "k1"), ("strong", "k2"), ("mid", "k2")]
+
+
+def gemini_error(code: int) -> errors.APIError:
+    error = errors.ServerError if code >= 500 else errors.ClientError
+    return error(code, {"error": {"code": code, "message": "m", "status": "S"}})
+
+
+def test_failure_is_described_in_words_the_host_can_act_on() -> None:
+    assert describe_failure(gemini_error(402)) == "Gemini 402 — скінчились кредити на ключі"
+
+
+def test_failure_reads_the_status_behind_the_exhausted_chain() -> None:
+    try:
+        try:
+            raise gemini_error(503)
+        except errors.APIError as exc:
+            raise RuntimeError("No Gemini model in [...] answered on 1 key(s)") from exc
+    except RuntimeError as chained:
+        assert describe_failure(chained) == "Gemini 503 — модель перевантажена"
+
+
+def test_a_non_gemini_status_is_not_blamed_on_gemini() -> None:
+    """A Sheets or Calendar refusal carries an HTTP status too."""
+    assert describe_failure(FakeError(403)) == "FakeError: http 403"
+
+
+def test_a_bot_token_in_an_error_never_reaches_the_chat() -> None:
+    exc = ConnectionError("POST https://api.telegram.org/bot123456:AA-bc_d/sendMessage failed")
+
+    assert describe_failure(exc) == (
+        "ConnectionError: POST https://api.telegram.org/bot***/sendMessage failed"
+    )

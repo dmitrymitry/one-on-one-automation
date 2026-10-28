@@ -242,6 +242,30 @@ def test_status_says_when_calendar_failed() -> None:
     assert "У календар не додано" in telegram.sent[-1][1]
 
 
+def test_status_names_the_gemini_reason_when_tasks_were_not_extracted() -> None:
+    # 28.10: "no rights" sent the host to check Calendar, but Gemini had refused.
+    bot, _, telegram = make_bot(
+        result={
+            "status": "sent",
+            "meeting_date": "28.10",
+            "delivered": ["beta"],
+            "failed": [],
+            "calendar": {
+                "status": "failed",
+                "reason": "extraction",
+                "error": "Gemini 402 — скінчились кредити на ключі",
+                "created": 0,
+            },
+        }
+    )
+
+    bot.handle(callback())
+
+    assert telegram.sent[-1][1].splitlines()[-1] == (
+        "У календар не додано: задачі не витягнуто, Gemini 402 — скінчились кредити на ключі"
+    )
+
+
 def test_calendar_line_shows_even_when_nobody_was_reached() -> None:
     bot, _, telegram = make_bot(
         result={
