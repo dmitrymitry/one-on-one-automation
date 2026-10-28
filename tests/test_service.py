@@ -164,3 +164,81 @@ def test_declined_meetings_still_remind_when_the_setting_is_off(monkeypatch) -> 
     svc.send_followups()
 
     assert reminded == ["off"]
+
+
+def alerting_service(row: dict, sent: list, host_chat: str = "42") -> VegasAutomationService:
+    """Drafting that always fails the way Gemini did on 28.10: out of credits."""
+    from google.genai import errors
+
+    svc = drafting_service(row, {})
+    svc.settings = SimpleNamespace(
+        reminder_followup_count=6,
+        summary_auto_send=False,
+        host_telegram_chat_id=host_chat,
+        host_telegram_thread_id="",
+        app_timezone="Europe/Kyiv",
+        calendar_lookback_hours=48,
+    )
+    svc.sheets.patch_meeting = lambda meeting_id, changes: row.update(changes)
+    svc.telegram = SimpleNamespace(send_message=lambda chat, text, thread="": sent.append(text))
+
+    def summarize(*args, **kwargs):
+        raise errors.ClientError(402, {"error": {"code": 402, "message": "m", "status": "S"}})
+
+    svc.llm = SimpleNamespace(summarize=summarize)
+    return svc
+
+
+def test_a_failed_draft_alerts_the_host_once_across_retries() -> None:
+    row: dict = {}
+    sent: list[str] = []
+    svc = alerting_service(row, sent)
+    ksu = Manager("ksu", "Ksu", ())
+
+    svc._prepare_meeting_summary(meeting(), ksu, "т")
+    svc._prepare_meeting_summary(meeting(), ksu, "т")  # the next cycle's retry
+
+    assert sent == [
+        "Чернетку фоллоуапу не складено: Vegas & Ksu / Weekly, 22.09\n"
+        "Причина: Gemini 402 — скінчились кредити на ключі\n"
+        "Бот повторює спробу сам ще 48 год після зустрічі. Про цю зустріч більше не пишу."
+    ]
+    assert row["failure_alerts"] == "summary"
+    assert row["manager_id"] == "ksu"
+
+
+def test_a_failed_reminder_gets_its_own_alert(monkeypatch) -> None:
+    row = {"failure_alerts": "summary"}
+    sent: list[str] = []
+    svc, _ = reminder_service(monkeypatch, True, meeting_declined("event-1", False))
+    alerting = alerting_service(row, sent)
+    svc.settings.host_telegram_chat_id = "42"
+    svc.settings.host_telegram_thread_id = ""
+    svc.settings.calendar_lookback_hours = 48
+    svc.sheets.get_meeting = alerting.sheets.get_meeting
+    svc.sheets.patch_meeting = alerting.sheets.patch_meeting
+    svc.telegram = alerting.telegram
+
+    def fail(meeting, manager, managers):
+        raise RuntimeError("Telegram is down")
+
+    svc._send_one_followup = fail
+
+    result = svc.send_followups()
+
+    assert result["failed"] == 1
+    assert sent[0].splitlines()[:2] == [
+        "Нагадування не надіслано: Vegas & Ksu / Weekly, 22.09",
+        "Причина: RuntimeError: Telegram is down",
+    ]
+    assert row["failure_alerts"] == "summary;reminder"
+
+
+def test_no_alert_without_a_host_chat() -> None:
+    row: dict = {}
+    sent: list[str] = []
+    svc = alerting_service(row, sent, host_chat="")
+
+    svc._prepare_meeting_summary(meeting(), Manager("ksu", "Ksu", ()), "т")
+
+    assert sent == [] and "failure_alerts" not in row

@@ -357,6 +357,37 @@ def sanitize_text(value: str, limit: int = 1000) -> str:
     return " ".join(value.translate(_FORBIDDEN_TABLE).split())[:limit]
 
 
+BOT_TOKEN_IN_URL = re.compile(r"bot\d+:[\w-]+")
+
+# What a Gemini status means for the host, in words they can act on.
+FAILURE_REASONS = {
+    400: "запит відхилено: недійсний ключ або помилка в запиті",
+    402: "скінчились кредити на ключі",
+    429: "вичерпано квоту на всіх ключах",
+}
+
+
+def describe_failure(exc: BaseException) -> str:
+    """Why the bot produced nothing, in one line for the host, without a traceback.
+
+    Only a google-genai error is named as Gemini: Sheets and Calendar errors
+    carry HTTP statuses too, and "Gemini 403" for a Calendar refusal would
+    send the host looking in the wrong place.
+    """
+    seen: BaseException | None = exc
+    while seen is not None:
+        if type(seen).__module__.startswith("google.genai"):
+            status = _status_code(seen)
+            reason = FAILURE_REASONS.get(status or 0, "")
+            if not reason and status and status >= 500:
+                reason = "модель перевантажена"
+            return f"Gemini {status} — {reason}" if reason else f"Gemini {status}"
+        seen = seen.__cause__ or seen.__context__
+    # The line goes to a chat: a Telegram URL in an error must not carry the token.
+    message = BOT_TOKEN_IN_URL.sub("bot***", str(exc))
+    return f"{type(exc).__name__}: {message[:200]}"
+
+
 def _key_label(key: str) -> str:
     """Name a key in logs without printing it."""
     return f"...{key[-4:]}" if len(key) > 4 else "key"

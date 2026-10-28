@@ -15,7 +15,7 @@ from .followup import (
     merge_calendar_notes,
 )
 from .gmail_client import GmailTranscriptClient
-from .llm_analyzer import LLMAnalyzer
+from .llm_analyzer import LLMAnalyzer, describe_failure
 from .meeting_matcher import match_manager, mentions_manager, normalize_text
 from .meeting_summary import build_meeting_summary, split_for_telegram, summary_recipients
 from .models import CalendarMeeting, Manager, MeetingReminder
@@ -26,6 +26,16 @@ LOGGER = logging.getLogger(__name__)
 
 # First line of a follow-up: its date, "28.09.26" (Rule 2).
 FOLLOWUP_DATE_LINE = re.compile(r"^\d{2}\.\d{2}\.\d{2}\s*$")
+
+# Alert to the host when a cycle could not produce something: what is missing,
+# and how long the bot keeps retrying it on its own.
+FAILURE_ALERTS = {
+    "summary": (
+        "Чернетку фоллоуапу не складено",
+        "Бот повторює спробу сам ще {hours} год після зустрічі.",
+    ),
+    "reminder": ("Нагадування не надіслано", "Бот повторює спробу сам до початку зустрічі."),
+}
 
 
 class VegasAutomationService:
@@ -132,9 +142,10 @@ class VegasAutomationService:
                     summary["sent"] += 1
                 else:
                     summary["skipped"] += 1
-            except Exception:
+            except Exception as exc:
                 summary["failed"] += 1
                 LOGGER.exception("Could not send follow-up for meeting %s", meeting.meeting_id)
+                self._alert_failure(meeting, manager, "reminder", exc)
         return summary
 
     def _process_one_transcript(self, meeting: CalendarMeeting, manager: Manager) -> bool:
@@ -216,8 +227,45 @@ class VegasAutomationService:
             self.sheets.patch_meeting(meeting.meeting_id, changes)
             if self.settings.summary_auto_send:
                 self.send_meeting_summary(meeting.meeting_id)
-        except Exception:
+        except Exception as exc:
             LOGGER.exception("Could not draft meeting summary for %s", meeting.meeting_id)
+            self._alert_failure(meeting, manager, "summary", exc)
+
+    def _alert_failure(
+        self, meeting: CalendarMeeting, manager: Manager, kind: str, exc: Exception
+    ) -> None:
+        """Tell the host that a draft or a reminder did not come out, once per meeting.
+
+        The cycle retries every few minutes and logs every failure, but nobody
+        reads the logs: on 27–28.10 Gemini refused for over a day, and the host
+        learned it only from a missing follow-up. `failure_alerts` keeps the
+        retries from repeating the same alert.
+        """
+        if not self.settings.host_telegram_chat_id:
+            return
+        try:
+            current = self.sheets.get_meeting(meeting.meeting_id) or {}
+            alerted = [item for item in current.get("failure_alerts", "").split(";") if item]
+            if kind in alerted:
+                return
+            day = meeting.start_at.astimezone(ZoneInfo(self.settings.app_timezone))
+            what, retry = FAILURE_ALERTS[kind]
+            text = (
+                f"{what}: {meeting.title}, {day:%d.%m}\n"
+                f"Причина: {describe_failure(exc)}\n"
+                f"{retry.format(hours=self.settings.calendar_lookback_hours)} "
+                "Про цю зустріч більше не пишу."
+            )
+            self.telegram.send_message(
+                self.settings.host_telegram_chat_id, text, self.settings.host_telegram_thread_id
+            )
+            # The identity fields too: a reminder fails before the row exists.
+            self.sheets.patch_meeting(
+                meeting.meeting_id,
+                {**_meeting_record(meeting, manager), "failure_alerts": ";".join(alerted + [kind])},
+            )
+        except Exception:
+            LOGGER.exception("Could not alert the host about %s", meeting.meeting_id)
 
     def _show_draft(self, meeting_id: str, text: str) -> dict[str, str]:
         """Put the draft in front of the host, with both ways to edit it."""
@@ -465,9 +513,14 @@ class VegasAutomationService:
                 _short_date(record.get("start_at", "")),
                 other_managers,
             )
-        except Exception:
+        except Exception as exc:
             LOGGER.exception("Could not extract host tasks for %s", meeting_id)
-            return {"status": "failed", "reason": "extraction", "created": 0}
+            return {
+                "status": "failed",
+                "reason": "extraction",
+                "error": describe_failure(exc),
+                "created": 0,
+            }
 
         meeting_day = _iso_day(record.get("start_at", ""))
         title_prefix = f"1:1 {record.get('manager_id', '')}".strip()

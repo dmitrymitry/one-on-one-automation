@@ -143,6 +143,9 @@ class TelegramBot:
             if cal.get("without_deadline"):
                 note += f" (без строку: {cal['without_deadline']})"
             lines.append(note)
+        elif cal.get("reason") == "extraction":
+            # Not a calendar problem: the tasks never got pulled out of the text.
+            lines.append(f"У календар не додано: задачі не витягнуто, {cal.get('error', '')}")
         elif cal.get("status") == "failed":
             lines.append("У календар не додано: немає прав або помилка, глянь логи")
         self._ack(callback_id, "Надіслано" if status == "sent" else "Не дійшло")
