@@ -169,9 +169,13 @@ class LLMAnalyzer:
         return self._generate_openai(prompt, schema)
 
     # Transient or capacity errors: worth trying a weaker model instead of failing.
-    FALLBACK_CODES = (429, 500, 502, 503, 504)
+    FALLBACK_CODES = (402, 429, 500, 502, 503, 504)
     # Out of daily quota. Unlike an overload, another project's key fixes it.
     QUOTA_CODE = 429
+    # The project's prepaid credits are gone: no model answers on this key, so
+    # it is skipped for the rest of the chain. Another project's key fixes it.
+    CREDITS_CODE = 402
+    KEY_CODES = (QUOTA_CODE, CREDITS_CODE)
 
     def _generate_gemini(self, prompt: str, schema: type[ModelT]) -> ModelT:
         """Walk the model chain, strongest first, until one answers.
@@ -184,8 +188,11 @@ class LLMAnalyzer:
         keys = self.settings.gemini_api_key_list
         last_error: Exception | None = None
         attempt = 0
+        out_of_credits: set[str] = set()
         for model in chain:
             for key in keys:
+                if key in out_of_credits:
+                    continue
                 try:
                     response = self.client[key].models.generate_content(
                         model=model,
@@ -215,9 +222,11 @@ class LLMAnalyzer:
                         _key_label(key),
                         status,
                     )
+                    if status == self.CREDITS_CODE:
+                        out_of_credits.add(key)
                     # An overloaded model stays overloaded whoever asks: swapping
-                    # keys only helps when the wall is a per-project quota.
-                    if status != self.QUOTA_CODE:
+                    # keys only helps when the wall is per project (quota, credits).
+                    if status not in self.KEY_CODES:
                         break
         raise RuntimeError(
             f"No Gemini model in {chain} answered on {len(keys)} key(s)"
