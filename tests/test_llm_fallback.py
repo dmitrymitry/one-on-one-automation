@@ -35,6 +35,7 @@ def make_analyzer(
     code: int = 503,
     chain: str = "strong,mid,weak",
     keys: str = "k1",
+    key_codes: dict | None = None,
 ):
     analyzer = LLMAnalyzer.__new__(LLMAnalyzer)
     analyzer.provider = "gemini"
@@ -47,7 +48,8 @@ def make_analyzer(
     )
     log: list = []
     analyzer.client = {
-        key: SimpleNamespace(models=FakeModels(serves, code, key, log)) for key in key_list
+        key: SimpleNamespace(models=FakeModels(serves, (key_codes or {}).get(key, code), key, log))
+        for key in key_list
     }
     return analyzer, SimpleNamespace(tried=log)
 
@@ -134,3 +136,26 @@ def test_every_model_and_key_exhausted_names_the_key_count() -> None:
         ("mid", "k1"),
         ("mid", "k2"),
     ]
+
+
+def test_depleted_credits_rotate_to_the_next_key() -> None:
+    """402: the project's prepaid credits are gone; another project's key clears it.
+
+    28.10: a 402 raised at once, so one key without credits blocked the spare
+    key and every weaker model.
+    """
+    analyzer, models = make_analyzer({("strong", "k2")}, code=402, keys="k1,k2")
+
+    analyzer._generate_gemini("p", RawHostTasks)
+
+    assert models.tried == [("strong", "k1"), ("strong", "k2")]
+
+
+def test_key_without_credits_is_skipped_on_weaker_models() -> None:
+    """No model answers on a 402 key, so it is not asked again down the chain."""
+    # k1 has no credits; k2 is out of quota on the strong model only.
+    analyzer, models = make_analyzer({("mid", "k2")}, code=429, keys="k1,k2", key_codes={"k1": 402})
+
+    analyzer._generate_gemini("p", RawHostTasks)
+
+    assert models.tried == [("strong", "k1"), ("strong", "k2"), ("mid", "k2")]
